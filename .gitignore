@@ -1,0 +1,25 @@
+# Go build/test artifacts
+/bin/
+/build/
+*.exe
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+
+# Variáveis de ambiente
+.env
+
+# Editor / OS artifacts
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Documentos locais
+SDD_GoFastAPI_Production_Server.md
+SDD_SYNC_AUDIT.md
+
+# Diretórios (descomente apenas se não quiser versionar os dados de teste)
+ testdata/

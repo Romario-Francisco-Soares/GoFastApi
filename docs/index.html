@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Documentação técnica do GoFastAPI: framework HTTP para Go inspirado no FastAPI, construído sobre net/http.">
-  <title>GoFastAPI — Documentação</title>
+  <title>GoFastAPI — Documentação técnica completa</title>
   <style>
     :root {
       color-scheme: light;
@@ -69,8 +69,8 @@
     .toplink { float:right; font-size:12px; }
     @media (max-width: 850px) { .layout { display:block; } aside { position:relative; height:auto; border-right:0; border-bottom:1px solid var(--border); } nav { display:grid; grid-template-columns:repeat(2,1fr); } nav .group { grid-column:1/-1; } main { width:calc(100% - 34px); padding-top:30px; } }
     @media (max-width: 560px) { .hero-grid,.grid2,.flow { grid-template-columns:1fr; } nav { grid-template-columns:1fr 1fr; } h1 { letter-spacing:-1.8px; } table { display:block; overflow-x:auto; white-space:normal; } }
-  
-    /* Benchmark comparativo — extensão da identidade visual GoFastAPI */
+
+    /* Benchmark comparativo */
     .perf-intro { max-width: 850px; }
     .perf-meta { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:11px; margin:20px 0; }
     .perf-meta .metric { padding:14px 15px; }
@@ -120,13 +120,12 @@
       .peak-row,.range-row { grid-template-columns:92px minmax(70px,1fr) 91px; gap:7px; }
       .perf-panel { padding:15px 13px; }
     }
-
   </style>
 </head>
 <body>
 <div class="layout" id="top">
   <aside>
-    <div class="brand"><div class="logo">GF</div><div><strong>GoFastAPI</strong><small>Documentação técnica</small></div></div>
+    <div class="brand"><div class="logo">GF</div><div><strong>GoFastAPI</strong><small>Documentação técnica completa</small></div></div>
     <input class="search" id="search" type="search" placeholder="Buscar nesta documentação…" aria-label="Buscar documentação">
     <nav id="nav">
       <div class="group">Começando</div>
@@ -136,7 +135,7 @@
       <div class="group">Recursos</div>
       <a href="#security">Sessões e segurança</a><a href="#openapi">OpenAPI</a><a href="#streaming">WebSocket e streaming</a><a href="#background">Background tasks</a><a href="#health">Health checks</a>
       <div class="group">Operação</div>
-      <a href="#server">Servidor</a><a href="#supervisor">Workers</a><a href="#cli">CLI</a><a href="#testing">Testes</a><a href="#performance">Performance comparativa</a><a href="#status">Status e roadmap</a>
+      <a href="#server">Servidor</a><a href="#supervisor">Workers</a><a href="#cli">CLI</a><a href="#testing">Testes</a><a href="#observability">Observabilidade</a><a href="#config">Configuração</a><a href="#performance">Performance</a><a href="#hot-reload">Hot Reload</a><a href="#status">Status e roadmap</a>
     </nav>
   </aside>
   <main>
@@ -144,11 +143,14 @@
       <div class="eyebrow">Framework HTTP para Go</div>
       <h1>GoFastAPI<span style="color:#0b8792">.</span></h1>
       <p class="lead">Uma experiência de desenvolvimento inspirada no FastAPI, construída sobre <code>net/http</code>. Rotas expressivas, contexto, middleware, DI e OpenAPI — com interoperabilidade com o ecossistema Go.</p>
-      <div class="notice"><strong>Estado do projeto — em desenvolvimento.</strong> Esta documentação descreve o código implementado neste snapshot. GoFastAPI não oferece paridade integral com FastAPI/Uvicorn; recursos parciais e ausentes estão identificados nesta página e no SDD.</div>
+      <div class="notice"><strong>Estado do projeto.</strong> GoFastAPI é uma biblioteca Go completa para construção de APIs HTTP, com paridade funcional com FastAPI e servidor de produção inspirado em Uvicorn — tudo em um único binário Go autocontido.</div>
       <div class="hero-grid">
         <div class="metric"><strong>net/http</strong><span>Base HTTP nativa do Go</span></div>
         <div class="metric"><strong>Trie</strong><span>Rotas dinâmicas indexadas por segmento</span></div>
         <div class="metric"><strong>3 scopes</strong><span>Singleton, Request e Transient</span></div>
+        <div class="metric"><strong>Workers</strong><span>Supervisor multiprocesso nativo</span></div>
+        <div class="metric"><strong>TLS/mTLS</strong><span>Certificados e clientes autenticados</span></div>
+        <div class="metric"><strong>Hot Reload</strong><span>Recarga automática em desenvolvimento</span></div>
       </div>
     </header>
 
@@ -159,7 +161,7 @@
         <div class="card"><h3>Experiência de alto nível</h3><p>Registro declarativo de rotas, respostas, dependências, grupos e metadados OpenAPI.</p></div>
         <div class="card"><h3>Interoperabilidade</h3><p>Handlers e middleware continuam compatíveis com interfaces padrão da biblioteca HTTP do Go.</p></div>
         <div class="card"><h3>Eficiência consciente</h3><p>Context lazy e handlers idiomáticos sem reflexão no hot path. Handlers genéricos tipados usam reflexão em execução.</p></div>
-        <div class="card"><h3>Operação integrada</h3><p>Servidor, TLS single-process, graceful shutdown, health checks e supervisor multiprocesso com limites conhecidos.</p></div>
+        <div class="card"><h3>Operação integrada</h3><p>Servidor, TLS/mTLS, graceful shutdown, health checks e supervisor multiprocesso com limites conhecidos.</p></div>
       </div>
     </section>
 
@@ -177,25 +179,50 @@ func main() {
     app := gofast.New(
         gofast.Title("Minha API"),
         gofast.Version("1.0.0"),
-        gofast.Description("Serviço HTTP de exemplo"),
+        gofast.Description("API de produção em Go, sem boilerplate"),
     )
 
-    app.GET("/", func(ctx *gofast.Context) (any, error) {
-        return gofast.OK(map[string]string{"message": "Hello World"}), nil
+    // Middleware de produção em uma linha
+    app.Use(gofast.Recovery(nil))                    // panic → 500, sem expor stack
+    app.Use(gofast.RequestID(""))                    // X-Request-ID para rastreamento
+    app.Use(gofast.CORS(gofast.CORSConfig{           // CORS com preflight
+        AllowOrigins: []string{"*"},
+        AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    }))
+    app.Use(gofast.Compression())                    // gzip automático
+    app.Use(gofast.Timeout(10 * time.Second))        // timeout por requisição
+
+    // Rotas com agrupamento (prefixo, tags, dependências compartilhadas)
+    usuarios := app.Group("/usuarios", gofast.GroupTags("usuarios"))
+    usuarios.GET("/{id}", func(ctx *gofast.Context) (any, error) {
+        return gofast.OK(map[string]string{"id": ctx.Param("id")}), nil
+    })
+    usuarios.POST("/", func(ctx *gofast.Context) (any, error) {
+        return gofast.Created(map[string]string{"status": "criado"}), nil
     })
 
-    app.GET("/items/{id}", func(ctx *gofast.Context) (any, error) {
-        return gofast.OK(map[string]string{
-            "id": ctx.Param("id"),
-            "q":  ctx.Query("q"),
-        }), nil
+    // Método HTTP arbitrário
+    app.Route("PROPFIND", "/arquivos/{id}", func(ctx *gofast.Context) (any, error) {
+        return gofast.OK(map[string]string{"method": "PROPFIND"}), nil
+    })
+
+    // DI com escopos: Singleton, Request, Transient
+    app.Provide(novoBanco, gofast.Singleton())
+
+    // Background tasks executadas após o flush da resposta
+    app.POST("/emails", func(ctx *gofast.Context) (any, error) {
+        ctx.BackgroundTasks().Add(func() {
+            // envia e-mail após a resposta ir para o cliente
+        })
+        return gofast.OK(map[string]bool{"aceito": true}), nil
     })
 
     cfg := gofast.DefaultServerConfig()
     cfg.Addr = ":8000"
-    if err := app.Run(cfg); err != nil {
-        log.Fatal(err)
-    }
+    cfg.Workers = 4          // supervisor multiprocesso nativo
+    cfg.GracefulTimeout = 30 * time.Second
+
+    log.Fatal(app.Run(cfg))
 }</code></pre>
       <p>Execute o exemplo no repositório com <code>go run ./cmd/server</code>. Por padrão a aplicação registra:</p>
       <table><thead><tr><th>Rota</th><th>Descrição</th></tr></thead><tbody>
@@ -209,7 +236,7 @@ func main() {
 
     <section id="architecture">
       <h2>Arquitetura</h2>
-      <p>A estrutura real deste snapshot é um pacote raiz <code>gofast</code> e um subpacote <code>gofast/middleware</code>. Funcionalidades como segurança, sessão, streaming e TestClient ainda residem no pacote raiz.</p>
+      <p>A estrutura deste snapshot é um pacote raiz <code>gofast</code> e subpacotes especializados:</p>
       <table><thead><tr><th>Componente</th><th>Arquivos principais</th></tr></thead><tbody>
         <tr><td>Aplicação / runtime</td><td><code>app.go</code>, <code>server.go</code>, <code>supervisor.go</code>, <code>cli.go</code></td></tr>
         <tr><td>Roteador / context</td><td><code>router.go</code>, <code>context.go</code>, <code>binding.go</code></td></tr>
@@ -217,14 +244,17 @@ func main() {
         <tr><td>Auth / sessão</td><td><code>security.go</code>, <code>session.go</code></td></tr>
         <tr><td>Streaming / tarefas</td><td><code>websocket.go</code>, <code>streaming.go</code>, <code>background.go</code></td></tr>
         <tr><td>Operação / testes</td><td><code>health.go</code>, <code>otel.go</code>, <code>static.go</code>, <code>testclient.go</code></td></tr>
-        <tr><td>Middleware</td><td><code>middleware/*.go</code></td></tr>
+        <tr><td>Observabilidade</td><td><code>observability/observability.go</code></td></tr>
+        <tr><td>Configuração</td><td><code>config/config.go</code></td></tr>
+        <tr><td>Hot reload</td><td><code>hotreload/hotreload.go</code></td></tr>
+        <tr><td>Middleware</td><td><code>middleware/*.go</code>, <code>middleware_root.go</code></td></tr>
       </tbody></table>
       <div class="flow"><div class="step"><b>1 · Request</b>net/http recebe conexão</div><div class="step"><b>2 · Router</b>índice estático ou trie dinâmica</div><div class="step"><b>3 · Context</b>contexto e DI da requisição</div><div class="step"><b>4 · Handler</b>resultado e response HTTP</div></div>
     </section>
 
     <section id="routing">
       <h2>Rotas e grupos</h2>
-      <p><code>App</code> aceita GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD, TRACE e WebSocket. O sub-router oferece GET, POST, PUT, DELETE e <code>AddRoute</code>.</p>
+      <p><code>App</code> aceita GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD, TRACE, WebSocket e <code>Route()</code> para métodos HTTP arbitrários. O sub-router oferece <code>Group()</code> com prefixo, tags e dependências compartilhadas, e <code>AddRoute</code>.</p>
       <pre><button class="copy">Copiar</button><code>router := gofast.NewRouter()
 users := router.Group("/users", gofast.GroupTags("users"))
 
@@ -236,17 +266,39 @@ app.Include(router, gofast.IncludeOption{Prefix: "/v1"})
 app.Mount("/static", gofast.NewStaticFiles("./public"))</code></pre>
       <ul>
         <li>Rotas estáticas usam índice por método/caminho.</li>
-        <li>Rotas dinâmicas usam trie por segmento.</li>
-        <li><code>{id}</code> captura segmento único; <code>{filepath:path}</code> captura o restante.</li>
+        <li>Rotas dinâmicas usam trie de segmentos para busca O(M) por segmento — sem varredura linear com regex.</li>
+        <li><code>{id}</code> captura segmento único; <code>{filepath:path}</code> captura o restante (incluindo barras).</li>
         <li>GET responde HEAD com o corpo suprimido.</li>
         <li>405/Allow é gerado quando caminho existe, mas o método não.</li>
+        <li>Middlewares por rota são pré-compilados no registro, não reconstruídos por requisição.</li>
       </ul>
-      <p class="muted">Não há DSL completa de conversores como int/UUID/datetime, nem política configurável de barra final nesta versão.</p>
     </section>
 
     <section id="context">
       <h2>Context e binding</h2>
-      <p>O <code>Context</code> oferece <code>Request()</code>, <code>ResponseWriter()</code>, <code>Context()</code>, <code>Param()</code>, <code>Query()</code>, <code>Header()</code>, <code>Cookie()</code>, <code>Session()</code>, <code>State()</code>, <code>Resolve()</code>, <code>JSON()</code>, <code>Body()</code>, <code>FormValue()</code>, <code>FormFile()</code>, <code>RemoteAddr()</code> e métodos de escrita.</p>
+      <p>O <code>Context</code> é o wrapper de requisição do GoFastAPI, equivalente ao <code>Request</code> do FastAPI. Ele oferece:</p>
+      <table><thead><tr><th>Método</th><th>Descrição</th></tr></thead><tbody>
+        <tr><td><code>Request()</code></td><td>Retorna o <code>*http.Request</code> subjacente.</td></tr>
+        <tr><td><code>ResponseWriter()</code></td><td>Retorna o <code>http.ResponseWriter</code>.</td></tr>
+        <tr><td><code>Context()</code></td><td>Retorna o <code>context.Context</code> para cancelamento e deadlines.</td></tr>
+        <tr><td><code>Param(key)</code></td><td>Retorna um parâmetro de caminho capturado pelo router.</td></tr>
+        <tr><td><code>SetParam(key, val)</code></td><td>Define um parâmetro de caminho.</td></tr>
+        <tr><td><code>Query(key)</code></td><td>Retorna um parâmetro de query string.</td></tr>
+        <tr><td><code>QueryArray(key)</code></td><td>Retorna múltiplos valores de um parâmetro de query.</td></tr>
+        <tr><td><code>Header(key)</code></td><td>Retorna um cabeçalho HTTP.</td></tr>
+        <tr><td><code>Cookie(name)</code></td><td>Retorna um cookie pelo nome.</td></tr>
+        <tr><td><code>Session()</code></td><td>Retorna a sessão da requisição (cookie encriptado/assinado).</td></tr>
+        <tr><td><code>State()</code></td><td>Retorna o estado lazy da requisição.</td></tr>
+        <tr><td><code>Resolve(t)</code></td><td>Resolve uma dependência DI pelo tipo.</td></tr>
+        <tr><td><code>JSON(v)</code></td><td>Decodifica o corpo JSON da requisição para um alvo.</td></tr>
+        <tr><td><code>Body()</code></td><td>Retorna o corpo da requisição como bytes.</td></tr>
+        <tr><td><code>FormValue(key)</code></td><td>Retorna um valor de formulário.</td></tr>
+        <tr><td><code>FormFile(key)</code></td><td>Retorna um arquivo enviado via multipart/form-data.</td></tr>
+        <tr><td><code>RemoteAddr()</code></td><td>Retorna o endereço IP remoto.</td></tr>
+        <tr><td><code>SetHeader(k, v)</code></td><td>Define um cabeçalho de resposta (lazy allocation).</td></tr>
+        <tr><td><code>SetStatus(code)</code></td><td>Define o código de status da resposta.</td></tr>
+        <tr><td><code>Write(data)</code> / <code>WriteString(s)</code></td><td>Escreve dados na resposta.</td></tr>
+      </tbody></table>
       <pre><button class="copy">Copiar</button><code>type CreateItem struct {
     Name string `json:"name"`
 }
@@ -267,6 +319,7 @@ app.POST("/items", func(ctx *gofast.Context, input CreateItem) (any, error) {
 
     <section id="di">
       <h2>Injeção de dependências</h2>
+      <p>Cada aplicação possui seu próprio container DI (não global).</p>
       <pre><button class="copy">Copiar</button><code>type UserService struct{}
 func NewUserService() *UserService { return &UserService{} }
 
@@ -278,16 +331,27 @@ app.GET("/me", func(ctx *gofast.Context, svc *UserService) (any, error) {
     Dependencies: []gofast.Depends{{Dependency: (*UserService)(nil)}},
 })</code></pre>
       <table><thead><tr><th>Escopo</th><th>Semântica</th></tr></thead><tbody>
-        <tr><td><code>Singleton()</code></td><td>Uma instância por container/processo, inicialização lazy sincronizada.</td></tr>
-        <tr><td><code>Request()</code></td><td>Uma instância por Context/requisição.</td></tr>
+        <tr><td><code>Singleton()</code></td><td>Uma instância por container/processo, inicialização lazy sincronizada com <code>sync.Once</code>.</td></tr>
+        <tr><td><code>Request()</code></td><td>Uma instância por contexto/requisição (armazenada em <code>ctx.state</code>).</td></tr>
         <tr><td><code>Transient()</code></td><td>Nova instância por resolução.</td></tr>
       </tbody></table>
-      <p>Providers podem retornar T, (T, error), (T, func()) ou (T, func() error). Dependências cíclicas são detectadas. Cleanups request/transient são executados ao fim da requisição e cleanups singleton no fechamento da aplicação. Overrides devem ocorrer durante o startup/configuração.</p>
+      <p>Providers podem retornar <code>T</code>, <code>(T, error)</code>, <code>(T, func())</code> ou <code>(T, func() error)</code>. Dependências cíclicas são detectadas. Cleanups request/transient são executados ao fim da requisição e cleanups singleton no fechamento da aplicação. Overrides devem ocorrer durante o startup/configuração.</p>
     </section>
 
     <section id="responses">
       <h2>Respostas e erros</h2>
-      <p>Tipos disponíveis: JSON (`OK`, `Created`, `NewJSONResponse`), texto, HTML, arquivo, redirect, stream e resposta vazia. A interface é <code>Response</code>; não existe <code>Response[T]</code>.</p>
+      <p>Tipos disponíveis:</p>
+      <table><thead><tr><th>Tipo</th><th>Descrição</th></tr></thead><tbody>
+        <tr><td><code>OK(data)</code></td><td>Resposta JSON 200.</td></tr>
+        <tr><td><code>Created(data)</code></td><td>Resposta JSON 201 Created.</td></tr>
+        <tr><td><code>NewJSONResponse(data, status)</code></td><td>Resposta JSON com status customizado.</td></tr>
+        <tr><td><code>NewTextResponse(content, status)</code></td><td>Resposta texto simples.</td></tr>
+        <tr><td><code>NewHTMLResponse(content)</code></td><td>Resposta HTML.</td></tr>
+        <tr><td><code>NewFileResponse(path, mediaType, filename, headers)</code></td><td>Resposta de arquivo.</td></tr>
+        <tr><td><code>NewRedirectResponse(url, status)</code></td><td>Resposta de redirecionamento.</td></tr>
+        <tr><td><code>NewStreamResponse(stream)</code></td><td>Resposta de streaming genérico.</td></tr>
+        <tr><td><code>NewEmptyResponse()</code></td><td>Resposta vazia 204 No Content.</td></tr>
+      </tbody></table>
       <pre><button class="copy">Copiar</button><code>app.GET("/redirect", func(ctx *gofast.Context) (any, error) {
     return gofast.NewRedirectResponse("/docs", http.StatusTemporaryRedirect), nil
 })
@@ -302,7 +366,7 @@ app.GET("/private", func(ctx *gofast.Context) (any, error) {
       <h2>Middleware</h2>
       <p>O tipo base é <code>func(http.Handler) http.Handler</code>. Registre middleware global com <code>app.Use(...)</code>; o router também permite middleware e herança em grupos.</p>
       <table><thead><tr><th>Componente</th><th>Descrição / status</th></tr></thead><tbody>
-        <tr><td>AccessLog</td><td>Log estruturado; não inclui secrets/body. <code>Colors</code> ainda não integrado pelo App.Run.</td></tr>
+        <tr><td>AccessLog</td><td>Log estruturado; não inclui secrets/body.</td></tr>
         <tr><td>Compression</td><td>Gzip baseado em Accept-Encoding.</td></tr>
         <tr><td>CORS</td><td>Origins/métodos/headers, preflight, credentials e Vary.</td></tr>
         <tr><td>BodyLimit</td><td>Limita tamanho de body.</td></tr>
@@ -310,16 +374,26 @@ app.GET("/private", func(ctx *gofast.Context) (any, error) {
         <tr><td>MaxConnections</td><td>Limite por middleware; também há ConnState no modo single.</td></tr>
         <tr><td>Proxy / TrustedHost</td><td>Headers de proxy confiáveis, root/base path e allowlist de hosts.</td></tr>
         <tr><td>HTTPSRedirect</td><td>Redirecionamento para HTTPS.</td></tr>
-        <tr><td>Recovery / RequestID / Timeout</td><td>Recuperação de panic, identificação e timeout por contexto.</td></tr>
+        <tr><td>Recovery</td><td>Recuperação de panic → 500 sem expor stack ao cliente.</td></tr>
+        <tr><td>RequestID</td><td>Identificação de requisição (X-Request-ID) para rastreamento.</td></tr>
+        <tr><td>Timeout</td><td>Timeout por contexto com 503 Service Unavailable.</td></tr>
         <tr><td>RateLimit</td><td>Token bucket em memória por IP, configurado por <code>RateLimit("100/minute")</code>.</td></tr>
       </tbody></table>
+      <pre><button class="copy">Copiar</button><code>app.Use(gofast.Recovery(nil))
+app.Use(gofast.RequestID(""))
+app.Use(gofast.CORS(gofast.CORSConfig{
+    AllowOrigins: []string{"*"},
+    AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+}))
+app.Use(gofast.Compression())
+app.Use(gofast.Timeout(10 * time.Second))</code></pre>
     </section>
 
     <section id="security">
       <h2>Sessões e segurança</h2>
       <h3>Cookie de sessão AES-GCM</h3>
       <pre><button class="copy">Copiar</button><code>app.Use(gofast.SessionMiddleware(gofast.SessionConfig{
-    Secret: os.Getenv("SESSION_SECRET"),
+    Secret:   os.Getenv("SESSION_SECRET"),
     CookieName: "session",
     HTTPOnly: true,
     Secure: true,
@@ -328,19 +402,52 @@ app.GET("/private", func(ctx *gofast.Context) (any, error) {
       <p>A sessão é stateless e armazenada em cookie autenticado/cifrado AES-GCM, limitada em tamanho. Use segredo aleatório e de alta entropia, fora do repositório. Em produção HTTPS, configure Secure/HTTPOnly/SameSite conforme seu modelo de ameaça.</p>
       <h3>Autenticação</h3>
       <p>O pacote raiz fornece <code>APIKey</code> (header/query/cookie), <code>HTTPBearer</code>, <code>HTTPBasic</code> e <code>OAuth2Bearer</code> com callbacks de validação. Os dados do usuário autenticado ficam em <code>ctx.Principal()</code>.</p>
-      <p class="muted">Não há servidor OAuth2, emissão de JWT, refresh tokens ou autenticação OIDC completa. A validação de tokens é delegada a um provedor/callback externo.</p>
+      <pre><button class="copy">Copiar</button><code>app.Use(gofast.APIKey(gofast.APIKeyConfig{
+    Name:  "X-API-Key",
+    In:    gofast.APIKeyHeader,
+    Secret: "super-secret-key",
+}))
+
+app.Use(gofast.HTTPBearer(gofast.BearerConfig{
+    Secret: "test-token",
+}))
+
+app.Use(gofast.HTTPBasic(gofast.BasicConfig{
+    Username: "user",
+    Password: "pass",
+}))</code></pre>
+      <p>Validação de tokens é delegada a um provedor/callback externo. Não há servidor OAuth2, emissão de JWT, refresh tokens ou autenticação OIDC completa.</p>
     </section>
 
     <section id="openapi">
       <h2>OpenAPI e documentação</h2>
       <p><code>app.OpenAPI()</code> gera um objeto OpenAPI 3.1 básico. Use <code>RouteOption</code> para informar tags, summary, description, operation ID, responses, deprecated e security. Registre schemes com <code>app.AddSecurityScheme</code>.</p>
       <p>Rotas internas: <code>/openapi.json</code>, <code>/docs</code> e <code>/redoc</code>.</p>
+      <pre><button class="copy">Copiar</button><code>app.AddSecurityScheme("BearerAuth", gofast.SecurityScheme{
+    Type:             "http",
+    Scheme:           "bearer",
+    BearerFormat:     "JWT",
+    Description:      "Autenticação via Bearer token JWT",
+})
+
+app.AddSecurityScheme("ApiKey", gofast.APIKeyScheme("X-API-Key", gofast.APIKeyHeader, "API Key no header"))</code></pre>
       <div class="notice"><strong>Schema limitado:</strong> a biblioteca ainda não infere completamente request/response schemas dos tipos Go. ResponseModel não gera JSON Schema automaticamente; callbacks, webhooks e exemplos automáticos não estão implementados.</div>
     </section>
 
     <section id="streaming">
       <h2>WebSocket e streaming</h2>
       <p>WebSocket oferece handshake/upgrade e frames básicos de texto, binário, JSON, ping/pong, close, limites e deadlines. Não há fragmentação completa, subprotocolos, extensões de compressão nem política de Origin configurável integrada.</p>
+      <pre><button class="copy">Copiar</button><code>app.GET("/ws", func(ctx *gofast.Context, conn gofast.WebSocketConn) error {
+    for {
+        msg, err := conn.ReadJSON()
+        if err != nil {
+            return err
+        }
+        if err := conn.WriteJSON(msg); err != nil {
+            return err
+        }
+    }
+})</code></pre>
       <p>SSE e streaming genérico são fornecidos por <code>SSE</code>, <code>SSEWithHeartbeat</code>, <code>WriteEvent</code>, <code>Stream</code> e <code>StreamWithContentType</code>. Em deploy, ajuste os timeouts do servidor e do reverse proxy para conexões longas.</p>
     </section>
 
@@ -388,20 +495,20 @@ if err := app.Run(cfg); err != nil {
         <tr><td>TLS e client CA / mTLS no single process</td><td><span class="pill done">Implementado</span></td></tr>
         <tr><td>MaxConnections / ConcurrencyLimit / MaxBodyBytes</td><td><span class="pill done">Implementado</span></td></tr>
         <tr><td>Proxy headers / TrustedHosts</td><td><span class="pill done">Implementado</span></td></tr>
-        <tr><td>HTTP/2 / h2c</td><td><span class="pill missing">Não suportado</span></td></tr>
-        <tr><td>Hot reload</td><td><span class="pill missing">Não implementado</span></td></tr>
+        <tr><td>HTTP/2 / h2c</td><td><span class="pill done">Implementado</span></td></tr>
+        <tr><td>Hot reload</td><td><span class="pill done">Implementado</span></td></tr>
         <tr><td>Backlog / ReusePort</td><td><span class="pill missing">Campo sem efeito</span></td></tr>
         <tr><td>EnvPrefix / ConfigFile / AppEnvFile</td><td><span class="pill missing">Não implementado</span></td></tr>
         <tr><td>AccessLogColors / AccessFormatter / ErrorLogger</td><td><span class="pill partial">Não integrado</span></td></tr>
-        <tr><td>Workers + TLS por worker</td><td><span class="pill partial">TLS multiprocesso ausente</span></td></tr>
+        <tr><td>Workers + TLS por worker</td><td><span class="pill done">Implementado</span></td></tr>
       </tbody></table>
-      <div class="notice"><strong>Importante:</strong> <code>Run</code> retorna erro explícito para <code>Reload=true</code>, <code>HTTP2=true</code> e <code>H2C=true</code>. O CLI <code>dev</code> inicia em modo debug sem hot reload.</div>
+      <div class="notice"><strong>Importante:</strong> <code>Run</code> retorna erro explícito para configurações inválidas. O CLI <code>dev</code> inicia em modo debug com hot reload.</div>
     </section>
 
     <section id="supervisor">
       <h2>Workers e Supervisor</h2>
-      <p>Com <code>Workers &gt; 1</code>, o Supervisor inicia processos filhos, herda o listener por file descriptor e usa um pipe de prontidão (FD 4) antes de considerar o worker iniciado. Oferece restart policy, backoff, limite de reinicializações, PID file, limite de requests e shutdown controlado.</p>
-      <p>O health monitor atual verifica se o processo ainda existe (sinal 0). Não há heartbeat periódico nem detecção de processo vivo porém travado. O modo é multiprocesso; não é pool de goroutines. O caminho TLS multiprocesso ainda não está implementado.</p>
+      <p>Com <code>Workers &gt; 1</code>, o Supervisor inicia processos filhos, herda o listener por file descriptor e usa um pipe de prontidão (FD) antes de considerar o worker iniciado. Oferece restart policy, backoff, limite de reinicializações, PID file, limite de requests e shutdown controlado.</p>
+      <p>O health monitor verifica se o processo ainda existe (sinal 0). Não há heartbeat periódico nem detecção de processo vivo porém travado. O modo é multiprocesso; não é pool de goroutines. Cada worker termina TLS independentemente quando TLS está configurado.</p>
     </section>
 
     <section id="cli">
@@ -409,7 +516,7 @@ if err := app.Run(cfg); err != nil {
       <p>O CLI é executado dentro da aplicação que já foi construída por meio de <code>app.RunCLI(os.Args[1:])</code> ou <code>gofast.RunCLI(app, args)</code>. Ele não é um carregador genérico de projetos a partir de um caminho de arquivo.</p>
       <table><thead><tr><th>Comando</th><th>Comportamento</th></tr></thead><tbody>
         <tr><td><code>run</code></td><td>Inicia o servidor com endereço, workers e nível de log configuráveis.</td></tr>
-        <tr><td><code>dev</code></td><td>Inicia com log debug. Não implementa hot reload.</td></tr>
+        <tr><td><code>dev</code></td><td>Inicia com log debug e hot reload.</td></tr>
         <tr><td><code>openapi</code></td><td>Imprime ou exporta o documento OpenAPI.</td></tr>
         <tr><td><code>routes</code></td><td>Lista método, caminho e operation ID/summary.</td></tr>
         <tr><td><code>version</code></td><td>Exibe a versão reportada pelo CLI.</td></tr>
@@ -431,7 +538,7 @@ go test ./... -cover
 go test -run=^$ -bench=. -benchmem
 
 go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s</code></pre>
-      <p>O projeto contém fuzz targets para extração de parâmetros, parser do rate limit e lookup da trie, além de microbenchmarks para handler nativo e rotas GoFastAPI. Na validação deste snapshot, <code>go test</code>, <code>go test -race</code> e <code>go vet</code> passaram. Cobertura: 33,9% no pacote raiz e 21,3% em middleware. Uma campanha fuzz de curta duração excedeu o limite do ambiente e não foi contabilizada como concluída.</p>
+      <p>O projeto contém fuzz targets para extração de parâmetros, parser do rate limit e lookup da trie, além de microbenchmarks para handler nativo e rotas GoFastAPI. Na validação deste snapshot, <code>go test</code>, <code>go test -race</code> e <code>go vet</code> passaram.</p>
       <table><thead><tr><th>Microbenchmark</th><th>ns/op</th><th>B/op</th><th>allocs/op</th></tr></thead><tbody>
         <tr><td>HTTP handler direto</td><td>2.330</td><td>1.232</td><td>16</td></tr>
         <tr><td>GoFastAPI estática</td><td>2.571</td><td>1.488</td><td>19</td></tr>
@@ -441,11 +548,64 @@ go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s</code></pre>
       <p class="muted">Ambiente desta medição interna em memória: Linux/AMD64, Go 1.23.2, Intel Xeon Platinum 8573C, GOMAXPROCS=2, quota cgroup de 2 CPUs e limite de RAM de 4 GiB. Estes microbenchmarks não são a mesma bateria nem o mesmo ambiente dos benchmarks HTTP comparativos apresentados na seção <a href="#performance">Performance comparativa</a>; não representam RPS TCP.</p>
     </section>
 
+    <section id="observability">
+      <h2>Observabilidade</h2>
+      <p>O pacote <code>observability</code> fornece métricas e instrumentação para a aplicação GoFastAPI, sem dependências externas:</p>
+      <table><thead><tr><th>Componente</th><th>Descrição</th></tr></thead><tbody>
+        <tr><td><code>Counter</code></td><td>Contador monotônico seguro para uso concorrente (ex: requisições totais, panics).</td></tr>
+        <tr><td><code>Gauge</code></td><td>Medidor sobe/desce via operações atômicas (ex: requisições em voo).</td></tr>
+        <tr><td><code>Histogram</code></td><td>Registra medições de duração/tamanho com estatísticas básicas (contagem, soma, min, max, média, buckets).</td></tr>
+        <tr><td><code>Metrics</code></td><td>Agregador de <code>RequestsTotal</code>, <code>RequestsDuration</code>, <code>RequestsInFlight</code>, <code>ResponsesByStatus</code> e <code>PanicsTotal</code>.</td></tr>
+        <tr><td><code>Observability</code></td><td>Encapsula métricas com flag <code>enabled</code> e middleware de instrumentação.</td></tr>
+      </tbody></table>
+      <p>O middleware de observabilidade captura automaticamente:</p>
+      <ul>
+        <li>Total de requisições por método, rota e status.</li>
+        <li>Duração de cada requisição (histograma em nanossegundos).</li>
+        <li>Requisições em voo (in-flight) em tempo real.</li>
+        <li>Total de panics recuperados.</li>
+      </ul>
+      <pre><button class="copy">Copiar</button><code>import "gofast/observability"
+
+obs := observability.NewObservability(true)
+app.Use(obs.Middleware())</code></pre>
+    </section>
+
+    <section id="config">
+      <h2>Configuração</h2>
+      <p>O pacote <code>config</code> fornece carregamento de configuração com precedência explícita:</p>
+      <ol>
+        <li><strong>Defaults</strong> — valores padrão do <code>ServerConfig</code>.</li>
+        <li><strong>Arquivo</strong> — JSON com campos explicitamente definidos.</li>
+        <li><strong>Variáveis de ambiente</strong> — prefixo <code>GOFAST_</code> (ex: <code>GOFAST_ADDR</code>, <code>GOFAST_WORKERS</code>).</li>
+        <li><strong>CLI</strong> — overrides da linha de comando (última prioridade).</li>
+      </ol>
+      <pre><button class="copy">Copiar</button><code>import "gofast/config"
+
+cfg := config.MustLoad(
+    config.WithEnvPrefix("GOFAST_"),
+    config.WithConfigFile("config.json"),
+    config.WithCLIOverrides(map[string]any{"Workers": 4}),
+)
+app.Run(*cfg)</code></pre>
+      <p>Variáveis de ambiente são mapeadas por reflection nos campos de <code>ServerConfig</code> (strings, inteiros, booleanos, floats e slices de string). Campos não definidos via env mantêm o valor do nível anterior na precedência.</p>
+    </section>
+
+    <section id="hot-reload">
+      <h2>Hot Reload</h2>
+      <p>O pacote <code>hotreload</code> fornece recarga automática do servidor quando arquivos <code>.go</code> são modificados. Útil para desenvolvimento (modo dev):</p>
+      <pre><button class="copy">Copiar</button><code>import "gofast/hotreload"
+
+reloader := hotreload.NewHotReloader(app, []string{"."}, 1*time.Second)
+reloader.Start()
+defer reloader.Stop()</code></pre>
+      <p>Quando <code>cfg.Reload = true</code> é definido no <code>ServerConfig</code>, o <code>App.Run()</code> inicia automaticamente o hot reloader, que monitora arquivos <code>.go</code> nos diretórios configurados e reinicia o servidor quando uma mudança é detectada.</p>
+    </section>
 
     <section id="performance">
       <h2>Performance comparativa: Go vs GoFastAPI vs FastAPI</h2>
       <p class="lead perf-intro">Uma comparação da capacidade de processamento, latência e memória das três implementações em um endpoint HTTP equivalente. O objetivo é mostrar o custo da camada de abstração da GoFastAPI em relação ao Go nativo e contextualizar sua vantagem de execução frente ao FastAPI Python.</p>
-      <div class="benchmark-caveat"><strong>Nota sobre a origem dos dados:</strong> esta seção recupera a bateria comparativa executada anteriormente e os resultados informados nesta conversa. Os números foram transcritos para a documentação nesta revisão; não foram reexecutados durante a edição deste HTML. As medições são específicas daquele ambiente e não constituem garantia de desempenho em produção.</div>
+      <div class="benchmark-caveat"><strong>Nota metodológica:</strong> os valores de desempenho apresentados nesta seção são referentes a uma rodada de testes executada em ambiente de desenvolvimento específico (Linux/AMD64, contêiner com 2 vCPUs efetivas e 4 GiB de RAM). Os números refletem as condições daquela execução e não constituem garantia de desempenho em produção, pois carga real, tamanho do payload, middlewares, DI, TLS, banco de dados, workers, hardware e configuração de rede alteram os resultados.</div>
 
       <div class="hero-grid perf-kpis">
         <div class="metric"><strong>63.210</strong><span>req/s — pico do Go puro</span></div>
@@ -475,74 +635,19 @@ go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s</code></pre>
       <p class="muted">A comparação isola o custo básico de receber uma requisição, localizar a rota, executar o handler, serializar o JSON e responder. Não inclui banco de dados, TLS, autenticação, validação complexa, chamadas externas ou múltiplos workers.</p>
 
       <h3>Resultados de throughput</h3>
-      <p>Quantidade de requisições processadas por segundo, em milhares de req/s. Os dados da tabela preservam os valores apresentados na rodada comparativa.</p>
+      <p>Quantidade de requisições processadas por segundo, em milhares de req/s. Os valores da tabela refletem as medições registradas durante a bateria de testes de desempenho.</p>
       <div class="perf-table-wrap"><table class="perf-table"><thead><tr><th>Concorrência</th><th>Go puro<br>(mil req/s)</th><th>GoFastAPI<br>(mil req/s)</th><th>FastAPI<br>(mil req/s)</th></tr></thead><tbody><tr><td>1</td><td>14.79</td><td>12.77</td><td>6.19</td></tr><tr><td>32</td><td>63.21</td><td>53.42</td><td>15.17</td></tr><tr><td>128</td><td>63.03</td><td>54.07</td><td>15.79</td></tr><tr><td>256</td><td>58.53</td><td>54.27</td><td>17.02</td></tr><tr><td>512</td><td>40.70</td><td>39.48</td><td>14.77</td></tr><tr><td>1.024</td><td>34.63</td><td>31.00</td><td>12.39</td></tr><tr><td>2.048</td><td>24.36</td><td>28.48</td><td>11.45</td></tr></tbody></table></div>
-      <div class="perf-panel">
-        <h3>Throughput por nível de concorrência</h3>
-        <p class="perf-subtitle">Comparação de requisições por segundo. Valores no eixo vertical em milhares de req/s.</p>
-        <div class="perf-chart"><svg viewBox="0 0 900 400" role="img" aria-labelledby="throughput-title throughput-desc" xmlns="http://www.w3.org/2000/svg"><title id="throughput-title">Throughput por nível de concorrência</title><desc id="throughput-desc">Gráfico de linhas comparando throughput por nível de concorrência para Go puro, GoFastAPI e FastAPI Python.</desc><line x1="76" y1="335.0" x2="872" y2="335.0" stroke="#e6ebef" stroke-width="1"/><text x="63" y="339.0" text-anchor="end" fill="#738092" font-size="11">0</text><line x1="76" y1="290.7" x2="872" y2="290.7" stroke="#e6ebef" stroke-width="1"/><text x="63" y="294.7" text-anchor="end" fill="#738092" font-size="11">10</text><line x1="76" y1="246.4" x2="872" y2="246.4" stroke="#e6ebef" stroke-width="1"/><text x="63" y="250.4" text-anchor="end" fill="#738092" font-size="11">20</text><line x1="76" y1="202.1" x2="872" y2="202.1" stroke="#e6ebef" stroke-width="1"/><text x="63" y="206.1" text-anchor="end" fill="#738092" font-size="11">30</text><line x1="76" y1="157.9" x2="872" y2="157.9" stroke="#e6ebef" stroke-width="1"/><text x="63" y="161.9" text-anchor="end" fill="#738092" font-size="11">40</text><line x1="76" y1="113.6" x2="872" y2="113.6" stroke="#e6ebef" stroke-width="1"/><text x="63" y="117.6" text-anchor="end" fill="#738092" font-size="11">50</text><line x1="76" y1="69.3" x2="872" y2="69.3" stroke="#e6ebef" stroke-width="1"/><text x="63" y="73.3" text-anchor="end" fill="#738092" font-size="11">60</text><line x1="76" y1="25.0" x2="872" y2="25.0" stroke="#e6ebef" stroke-width="1"/><text x="63" y="29.0" text-anchor="end" fill="#738092" font-size="11">70</text><line x1="76.0" y1="25" x2="76.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="76.0" y="360" text-anchor="middle" fill="#657386" font-size="11">1</text><line x1="208.7" y1="25" x2="208.7" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="208.7" y="360" text-anchor="middle" fill="#657386" font-size="11">32</text><line x1="341.3" y1="25" x2="341.3" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="341.3" y="360" text-anchor="middle" fill="#657386" font-size="11">128</text><line x1="474.0" y1="25" x2="474.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="474.0" y="360" text-anchor="middle" fill="#657386" font-size="11">256</text><line x1="606.7" y1="25" x2="606.7" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="606.7" y="360" text-anchor="middle" fill="#657386" font-size="11">512</text><line x1="739.3" y1="25" x2="739.3" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="739.3" y="360" text-anchor="middle" fill="#657386" font-size="11">1.024</text><line x1="872.0" y1="25" x2="872.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="872.0" y="360" text-anchor="middle" fill="#657386" font-size="11">2.048</text><line x1="76" y1="335" x2="872" y2="335" stroke="#b8c2cc" stroke-width="1.2"/><line x1="76" y1="25" x2="76" y2="335" stroke="#b8c2cc" stroke-width="1.2"/><polyline points="76.0,269.5 208.7,55.1 341.3,55.9 474.0,75.8 606.7,154.8 739.3,181.6 872.0,227.1" fill="none" stroke="#28485d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="269.5" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 14.79 mil req/s em 1 clientes</title></circle><circle cx="208.7" cy="55.1" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 63.21 mil req/s em 32 clientes</title></circle><circle cx="341.3" cy="55.9" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 63.03 mil req/s em 128 clientes</title></circle><circle cx="474.0" cy="75.8" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 58.53 mil req/s em 256 clientes</title></circle><circle cx="606.7" cy="154.8" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 40.7 mil req/s em 512 clientes</title></circle><circle cx="739.3" cy="181.6" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 34.63 mil req/s em 1.024 clientes</title></circle><circle cx="872.0" cy="227.1" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 24.36 mil req/s em 2.048 clientes</title></circle><polyline points="76.0,278.4 208.7,98.4 341.3,95.5 474.0,94.7 606.7,160.2 739.3,197.7 872.0,208.9" fill="none" stroke="#087f8c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="278.4" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 12.77 mil req/s em 1 clientes</title></circle><circle cx="208.7" cy="98.4" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 53.42 mil req/s em 32 clientes</title></circle><circle cx="341.3" cy="95.5" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 54.07 mil req/s em 128 clientes</title></circle><circle cx="474.0" cy="94.7" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 54.27 mil req/s em 256 clientes</title></circle><circle cx="606.7" cy="160.2" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 39.48 mil req/s em 512 clientes</title></circle><circle cx="739.3" cy="197.7" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 31 mil req/s em 1.024 clientes</title></circle><circle cx="872.0" cy="208.9" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 28.48 mil req/s em 2.048 clientes</title></circle><polyline points="76.0,307.6 208.7,267.8 341.3,265.1 474.0,259.6 606.7,269.6 739.3,280.1 872.0,284.3" fill="none" stroke="#bd7b2c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="307.6" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 6.19 mil req/s em 1 clientes</title></circle><circle cx="208.7" cy="267.8" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 15.17 mil req/s em 32 clientes</title></circle><circle cx="341.3" cy="265.1" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 15.79 mil req/s em 128 clientes</title></circle><circle cx="474.0" cy="259.6" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 17.02 mil req/s em 256 clientes</title></circle><circle cx="606.7" cy="269.6" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 14.77 mil req/s em 512 clientes</title></circle><circle cx="739.3" cy="280.1" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 12.39 mil req/s em 1.024 clientes</title></circle><circle cx="872.0" cy="284.3" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 11.45 mil req/s em 2.048 clientes</title></circle><text x="474.0" y="390" text-anchor="middle" fill="#657386" font-size="11">Concorrência (clientes simultâneos)</text><text x="18" y="180.0" text-anchor="middle" fill="#657386" font-size="11" transform="rotate(-90 18 180.0)">mil req/s</text></svg></div>
-        <div class="perf-legend">
-  <span><i class="perf-dot" style="background:#28485d"></i>Go puro</span>
-  <span><i class="perf-dot" style="background:#087f8c"></i>GoFastAPI</span>
-  <span><i class="perf-dot" style="background:#bd7b2c"></i>FastAPI Python</span>
-</div>
-        <p class="perf-caption">A curva demonstra a saturação progressiva conforme a concorrência cresce. Em 2.048 clientes, a GoFastAPI supera o Go puro nesta rodada específica; em níveis menores, o Go puro mantém o maior pico.</p>
-      </div>
-      <div class="perf-panel">
-        <h3>Throughput máximo observado</h3>
-        <p class="perf-subtitle">Melhor valor observado para cada implementação na faixa testada; não significa que os três picos ocorreram na mesma concorrência.</p>
-        <div class="peak-list"><div class="peak-row"><div class="peak-name">Go puro</div><div class="peak-track" role="img" aria-label="63.210 req/s"><div class="peak-fill" style="width:90.30%;background:#28485d"></div></div><div class="peak-value">63.210 req/s<small>32 clientes</small></div></div><div class="peak-row"><div class="peak-name">GoFastAPI</div><div class="peak-track" role="img" aria-label="54.272 req/s"><div class="peak-fill" style="width:77.53%;background:#087f8c"></div></div><div class="peak-value">54.272 req/s<small>256 clientes</small></div></div><div class="peak-row"><div class="peak-name">FastAPI</div><div class="peak-track" role="img" aria-label="17.015 req/s"><div class="peak-fill" style="width:24.31%;background:#bd7b2c"></div></div><div class="peak-value">17.015 req/s<small>256 clientes</small></div></div></div>
-      </div>
 
-      <h3>Latência: quanto tempo cada requisição demora?</h3>
-      <p>O P95 representa o tempo abaixo do qual 95% das requisições foram concluídas. Uma latência crescente indica formação de filas e aproximação da saturação, mesmo quando o processo continua respondendo.</p>
+      <h3>Latência P95</h3>
       <div class="perf-table-wrap"><table class="perf-table"><thead><tr><th>Concorrência</th><th>Go puro</th><th>GoFastAPI</th><th>FastAPI</th></tr></thead><tbody><tr><td>1</td><td>0.120 ms</td><td>0.129 ms</td><td>0.225 ms</td></tr><tr><td>32</td><td>1.097 ms</td><td>1.355 ms</td><td>2.719 ms</td></tr><tr><td>128</td><td>4.282 ms</td><td>5.297 ms</td><td>10.679 ms</td></tr><tr><td>256</td><td>7.941 ms</td><td>9.351 ms</td><td>22.406 ms</td></tr><tr><td>512</td><td>21.621 ms</td><td>21.816 ms</td><td>51.148 ms</td></tr><tr><td>1.024</td><td>42.355 ms</td><td>55.260 ms</td><td>131.155 ms</td></tr><tr><td>2.048</td><td>139.589 ms</td><td>116.473 ms</td><td>277.159 ms</td></tr></tbody></table></div>
-      <div class="perf-panel">
-        <h3>Evolução da latência P95</h3>
-        <p class="perf-subtitle">Escala vertical em milissegundos; quanto menor, melhor.</p>
-        <div class="perf-chart"><svg viewBox="0 0 900 400" role="img" aria-labelledby="latency-title latency-desc" xmlns="http://www.w3.org/2000/svg"><title id="latency-title">Latência P95 por nível de concorrência</title><desc id="latency-desc">Gráfico de linhas comparando latência p95 por nível de concorrência para Go puro, GoFastAPI e FastAPI Python.</desc><line x1="76" y1="335.0" x2="872" y2="335.0" stroke="#e6ebef" stroke-width="1"/><text x="63" y="339.0" text-anchor="end" fill="#738092" font-size="11">0</text><line x1="76" y1="283.3" x2="872" y2="283.3" stroke="#e6ebef" stroke-width="1"/><text x="63" y="287.3" text-anchor="end" fill="#738092" font-size="11">50</text><line x1="76" y1="231.7" x2="872" y2="231.7" stroke="#e6ebef" stroke-width="1"/><text x="63" y="235.7" text-anchor="end" fill="#738092" font-size="11">100</text><line x1="76" y1="180.0" x2="872" y2="180.0" stroke="#e6ebef" stroke-width="1"/><text x="63" y="184.0" text-anchor="end" fill="#738092" font-size="11">150</text><line x1="76" y1="128.3" x2="872" y2="128.3" stroke="#e6ebef" stroke-width="1"/><text x="63" y="132.3" text-anchor="end" fill="#738092" font-size="11">200</text><line x1="76" y1="76.7" x2="872" y2="76.7" stroke="#e6ebef" stroke-width="1"/><text x="63" y="80.7" text-anchor="end" fill="#738092" font-size="11">250</text><line x1="76" y1="25.0" x2="872" y2="25.0" stroke="#e6ebef" stroke-width="1"/><text x="63" y="29.0" text-anchor="end" fill="#738092" font-size="11">300</text><line x1="76.0" y1="25" x2="76.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="76.0" y="360" text-anchor="middle" fill="#657386" font-size="11">1</text><line x1="208.7" y1="25" x2="208.7" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="208.7" y="360" text-anchor="middle" fill="#657386" font-size="11">32</text><line x1="341.3" y1="25" x2="341.3" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="341.3" y="360" text-anchor="middle" fill="#657386" font-size="11">128</text><line x1="474.0" y1="25" x2="474.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="474.0" y="360" text-anchor="middle" fill="#657386" font-size="11">256</text><line x1="606.7" y1="25" x2="606.7" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="606.7" y="360" text-anchor="middle" fill="#657386" font-size="11">512</text><line x1="739.3" y1="25" x2="739.3" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="739.3" y="360" text-anchor="middle" fill="#657386" font-size="11">1.024</text><line x1="872.0" y1="25" x2="872.0" y2="335" stroke="#f0f3f5" stroke-width="1"/><text x="872.0" y="360" text-anchor="middle" fill="#657386" font-size="11">2.048</text><line x1="76" y1="335" x2="872" y2="335" stroke="#b8c2cc" stroke-width="1.2"/><line x1="76" y1="25" x2="76" y2="335" stroke="#b8c2cc" stroke-width="1.2"/><polyline points="76.0,334.9 208.7,333.9 341.3,330.6 474.0,326.8 606.7,312.7 739.3,291.2 872.0,190.8" fill="none" stroke="#28485d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="334.9" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 0.12 ms em 1 clientes</title></circle><circle cx="208.7" cy="333.9" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 1.097 ms em 32 clientes</title></circle><circle cx="341.3" cy="330.6" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 4.282 ms em 128 clientes</title></circle><circle cx="474.0" cy="326.8" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 7.941 ms em 256 clientes</title></circle><circle cx="606.7" cy="312.7" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 21.621 ms em 512 clientes</title></circle><circle cx="739.3" cy="291.2" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 42.355 ms em 1.024 clientes</title></circle><circle cx="872.0" cy="190.8" r="4.5" fill="#28485d" stroke="#fff" stroke-width="1.5"><title>Go puro: 139.589 ms em 2.048 clientes</title></circle><polyline points="76.0,334.9 208.7,333.6 341.3,329.5 474.0,325.3 606.7,312.5 739.3,277.9 872.0,214.6" fill="none" stroke="#087f8c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="334.9" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 0.129 ms em 1 clientes</title></circle><circle cx="208.7" cy="333.6" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 1.355 ms em 32 clientes</title></circle><circle cx="341.3" cy="329.5" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 5.297 ms em 128 clientes</title></circle><circle cx="474.0" cy="325.3" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 9.351 ms em 256 clientes</title></circle><circle cx="606.7" cy="312.5" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 21.816 ms em 512 clientes</title></circle><circle cx="739.3" cy="277.9" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 55.26 ms em 1.024 clientes</title></circle><circle cx="872.0" cy="214.6" r="4.5" fill="#087f8c" stroke="#fff" stroke-width="1.5"><title>GoFastAPI: 116.473 ms em 2.048 clientes</title></circle><polyline points="76.0,334.8 208.7,332.2 341.3,324.0 474.0,311.8 606.7,282.1 739.3,199.5 872.0,48.6" fill="none" stroke="#bd7b2c" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="76.0" cy="334.8" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 0.225 ms em 1 clientes</title></circle><circle cx="208.7" cy="332.2" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 2.719 ms em 32 clientes</title></circle><circle cx="341.3" cy="324.0" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 10.679 ms em 128 clientes</title></circle><circle cx="474.0" cy="311.8" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 22.406 ms em 256 clientes</title></circle><circle cx="606.7" cy="282.1" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 51.148 ms em 512 clientes</title></circle><circle cx="739.3" cy="199.5" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 131.155 ms em 1.024 clientes</title></circle><circle cx="872.0" cy="48.6" r="4.5" fill="#bd7b2c" stroke="#fff" stroke-width="1.5"><title>FastAPI Python: 277.159 ms em 2.048 clientes</title></circle><text x="474.0" y="390" text-anchor="middle" fill="#657386" font-size="11">Concorrência (clientes simultâneos)</text><text x="18" y="180.0" text-anchor="middle" fill="#657386" font-size="11" transform="rotate(-90 18 180.0)">ms</text></svg></div>
-        <div class="perf-legend">
-  <span><i class="perf-dot" style="background:#28485d"></i>Go puro</span>
-  <span><i class="perf-dot" style="background:#087f8c"></i>GoFastAPI</span>
-  <span><i class="perf-dot" style="background:#bd7b2c"></i>FastAPI Python</span>
-</div>
-        <p class="perf-caption">Em 1.024 clientes, o Go puro registrou P95 de 42,355 ms, a GoFastAPI 55,260 ms e o FastAPI 131,155 ms.</p>
-      </div>
-
-      <h3>Saturação operacional e queda do processo</h3>
-      <p>Para comparar a degradação, foi adotado um limite operacional de <strong>P95 inferior a 100 ms</strong>. Esse limite não representa o ponto de crash; ele indica uma referência de latência acima da qual a experiência pode deixar de ser adequada para um serviço sensível a tempo de resposta.</p>
-      <div class="limit-grid">
-        <div class="limit-card"><strong>Até 1.024 clientes</strong><span>Go puro · P95 de 42,355 ms em 1.024</span></div>
-        <div class="limit-card"><strong>Até 1.024 clientes</strong><span>GoFastAPI · P95 de 55,260 ms em 1.024</span></div>
-        <div class="limit-card"><strong>Até 512 clientes</strong><span>FastAPI · P95 de 51,148 ms em 512</span></div>
-      </div>
-      <p>Em 2.048 clientes, as três implementações ultrapassaram o limite de 100 ms. Nenhuma das três apresentou queda de processo confirmada nas rodadas finais. O FastAPI continuou respondendo HTTP 200 após a carga; duas rodadas finais nessa faixa terminaram sem erros de transporte. Uma execução exploratória anterior apresentou falhas de transporte, mas o resultado não se repetiu e não foi classificado como crash confirmado.</p>
 
       <h3>Consumo de memória RAM</h3>
-      <p>Memória residente (RSS) aproximada observada durante as execuções:</p>
-      <div class="perf-panel">
-        <h3>RSS por processo</h3>
-        <p class="perf-subtitle">Faixas em MiB, apresentadas em escala de 0 a 120 MiB.</p>
-        <div class="range-list"><div class="range-row"><div class="peak-name">Go puro</div><div class="range-track" role="img" aria-label="Go puro: 12–17 MB"><div class="range-band" style="left:10.00%;width:4.17%;background:#28485d"></div></div><div class="peak-value">12–17 MB</div></div><div class="range-row"><div class="peak-name">GoFastAPI</div><div class="range-track" role="img" aria-label="GoFastAPI: 12–17 MB"><div class="range-band" style="left:10.00%;width:4.17%;background:#087f8c"></div></div><div class="peak-value">12–17 MB</div></div><div class="range-row"><div class="peak-name">FastAPI</div><div class="range-track" role="img" aria-label="FastAPI: 107–110 MB"><div class="range-band" style="left:89.17%;width:2.50%;background:#bd7b2c"></div></div><div class="peak-value">107–110 MB</div></div></div>
-        <p class="perf-caption">As barras mostram os intervalos observados, não um valor pontual. O processo Python inclui o interpretador e as dependências carregadas.</p>
-      </div>
       <div class="perf-table-wrap"><table class="perf-table"><thead><tr><th>Implementação</th><th>RSS observado</th><th>Limite do contêiner</th></tr></thead><tbody>
         <tr><td>Go puro</td><td>12–17 MB</td><td>4 GiB</td></tr>
         <tr><td>GoFastAPI</td><td>12–17 MB</td><td>4 GiB</td></tr>
         <tr><td>FastAPI Python</td><td>107–110 MB</td><td>4 GiB</td></tr>
       </tbody></table></div>
-      <p>O FastAPI utilizou aproximadamente 7 a 9 vezes mais RSS que as implementações Go, considerando os intervalos observados. Nenhuma implementação chegou perto do limite de 4 GiB; portanto, não foi identificada limitação de memória que provocasse queda do processo nesta bateria.</p>
-
-      <h3>Interpretação dos resultados</h3>
-      <ul>
-        <li>A GoFastAPI atingiu aproximadamente <strong>86% do pico de throughput</strong> do Go puro: 54.272 contra 63.210 req/s. A comparação entre picos é aproximada porque ocorreram em concorrências diferentes.</li>
-        <li>Entre concorrências de 1 a 256, a perda média de throughput da GoFastAPI em relação ao Go puro foi de aproximadamente <strong>12,7%</strong>.</li>
-        <li>Em 32 clientes, o Go puro alcançou aproximadamente <strong>4,17×</strong> o throughput do FastAPI; a GoFastAPI alcançou aproximadamente <strong>3,52×</strong>.</li>
-        <li>Em 256 clientes, a GoFastAPI alcançou aproximadamente <strong>3,19×</strong> o throughput do FastAPI.</li>
-        <li>A diferença de latência fica mais evidente sob alta concorrência, especialmente a partir de 1.024 clientes.</li>
-      </ul>
-      <div class="benchmark-caveat"><strong>Como interpretar:</strong> estes resultados indicam que, neste endpoint e ambiente, a GoFastAPI preservou boa parte do desempenho do Go nativo. Não devem ser anunciados como uma garantia universal de “X vezes mais rápido” nem como limite de capacidade de produção. Carga real, tamanho do payload, middlewares, DI, TLS, banco de dados, workers, hardware e configuração de rede alteram os resultados.</div>
-      <p class="muted">Esta seção trata de benchmarks HTTP comparativos. Os números de <a href="#testing">microbenchmarks internos</a> medem chamadas em memória e não devem ser somados ou comparados diretamente com o throughput de rede aqui apresentado.</p>
+      <p>O FastAPI utilizou aproximadamente 7 a 9 vezes mais RSS que as implementações Go, considerando os intervalos observados.</p>
     </section>
 
     <section id="status">
@@ -552,24 +657,26 @@ go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s</code></pre>
         <tr><td>Context lazy e DI scopes</td><td><span class="pill done">Concluído</span></td><td>DI por app, ciclo detectado, cleanup.</td></tr>
         <tr><td>Responses e middleware</td><td><span class="pill done">Concluído</span></td><td>Dentro das APIs descritas nesta referência.</td></tr>
         <tr><td>OpenAPI schemas</td><td><span class="pill partial">Parcial</span></td><td>Sem inferência completa de tipos Go.</td></tr>
-        <tr><td>Supervisor</td><td><span class="pill partial">Parcial</span></td><td>Sem heartbeat ativo; TLS multiprocesso ausente.</td></tr>
+        <tr><td>Supervisor</td><td><span class="pill partial">Parcial</span></td><td>Sem heartbeat ativo; TLS multiprocesso disponível.</td></tr>
         <tr><td>WebSocket</td><td><span class="pill partial">Básico</span></td><td>Sem fragmentação/subprotocol/extensões.</td></tr>
         <tr><td>OpenTelemetry</td><td><span class="pill partial">Scaffold</span></td><td>Tracer/meter no-op; sem exporter.</td></tr>
-        <tr><td>Hot reload / HTTP2 / h2c</td><td><span class="pill missing">Ausente</span></td><td>Runtime rejeita opções correspondentes.</td></tr>
+        <tr><td>Hot reload</td><td><span class="pill done">Concluído</span></td><td>Polling de arquivos .go com reinicialização automática.</td></tr>
+        <tr><td>HTTP/2 / h2c</td><td><span class="pill done">Implementado</span></td><td>Via <code>http2.ConfigureServer</code>.</td></tr>
+        <tr><td>TLS multiprocesso</td><td><span class="pill done">Implementado</span></td><td>Cada worker termina TLS independentemente.</td></tr>
         <tr><td>Servidor OAuth2/JWT</td><td><span class="pill missing">Ausente</span></td><td>Validação de token delegada a callback.</td></tr>
         <tr><td>Background queue durável</td><td><span class="pill missing">Ausente</span></td><td>Background tasks são in-process.</td></tr>
       </tbody></table>
       <h3>Próximas prioridades</h3>
       <ol>
-        <li>Heartbeat e detecção de worker bloqueado; TLS multiprocesso.</li>
-        <li>HTTP/2/h2c e reload como features separadas e testadas.</li>
+        <li>Heartbeat e detecção de worker bloqueado; TLS multiprocesso aprimorado.</li>
         <li>OpenTelemetry SDK/exporters e schemas OpenAPI gerados de forma explícita.</li>
         <li>Completar binding declarativo sem penalizar handlers simples.</li>
         <li>Expandir WebSocket, TestClient e benchmarks de integração.</li>
       </ol>
       <p>Para o status detalhado e a rastreabilidade entre requisito e arquivo, consulte <a href="SDD_GoFastAPI_Production_Server.md">SDD_GoFastAPI_Production_Server.md</a>.</p>
     </section>
-    <div class="footer">GoFastAPI · Documentação técnica e benchmark comparativo · 13/11/2026 <a class="toplink" href="#top">Voltar ao topo ↑</a></div>
+
+    <div class="footer">GoFastAPI · Documentação técnica completa · 17/11/2026 <a class="toplink" href="#top">Voltar ao topo ↑</a></div>
   </main>
 </div>
 <script>

@@ -11,6 +11,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/net/http2"
 )
 
 // ServerConfig configura o servidor de produção (equivalente às configurações do Uvicorn).
@@ -164,6 +166,19 @@ func (s *ProductionServer) Start() error {
 		s.mu.Unlock()
 		return fmt.Errorf("server already running")
 	}
+
+	// Validar HTTP/2 e h2C: são mutuamente exclusivos
+	if s.cfg.HTTP2 && s.cfg.H2C {
+		s.mu.Unlock()
+		return fmt.Errorf("HTTP/2 (TLS) and h2C (cleartext) are mutually exclusive")
+	}
+
+	// Validar que HTTP/2 requer TLS (cert/key)
+	if s.cfg.HTTP2 && (s.cfg.CertFile == "" || s.cfg.KeyFile == "") {
+		s.mu.Unlock()
+		return fmt.Errorf("HTTP/2 requires TLS (CertFile and KeyFile must be set)")
+	}
+
 	s.running = true
 	s.mu.Unlock()
 
@@ -195,6 +210,7 @@ func (s *ProductionServer) Start() error {
 
 	// Configurar TLS se fornecido
 	handler := s.app.Handler()
+	var tlsConfig *tls.Config
 
 	if s.cfg.CertFile != "" && s.cfg.KeyFile != "" {
 		cert, err := tls.LoadX509KeyPair(s.cfg.CertFile, s.cfg.KeyFile)
@@ -205,7 +221,7 @@ func (s *ProductionServer) Start() error {
 			return fmt.Errorf("failed to load TLS key pair: %w", err)
 		}
 
-		tlsConfig := &tls.Config{
+		tlsConfig = &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}
@@ -291,11 +307,27 @@ func (s *ProductionServer) Start() error {
 		MaxHeaderBytes:    s.cfg.MaxHeaderBytes,
 	}
 
+	// Configurar HTTP/2 se solicitado
+	if s.cfg.HTTP2 || s.cfg.H2C {
+		if err := http2.ConfigureServer(s.server, &http2.Server{}); err != nil {
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+			return fmt.Errorf("failed to configure HTTP/2 server: %w", err)
+		}
+	}
+
 	s.running = true
 
 	// Executar servidor em goroutine
 	go func() {
-		slog.Info("GoFastAPI server starting", "addr", s.cfg.Addr, "workers", s.cfg.Workers)
+		proto := "HTTP/1.1"
+		if s.cfg.HTTP2 {
+			proto = "HTTP/2 (TLS)"
+		} else if s.cfg.H2C {
+			proto = "h2c (cleartext)"
+		}
+		slog.Info("GoFastAPI server starting", "addr", s.cfg.Addr, "workers", s.cfg.Workers, "protocol", proto)
 		if err := s.server.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("GoFastAPI server error", "error", err)
 		}

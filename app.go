@@ -21,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"gofast/hotreload"
 	"gofast/middleware"
 )
 
@@ -45,12 +46,14 @@ type App struct {
 	redocURL            string
 	healthManager       *HealthManager
 	otel                *OTelManager
+	subRouters          []*Router // sub-routers criados via App.Group; suas rotas são mescladas no Handler()
 	cli                 *CLI
 	di                  *DIContainer // Container DI por instância de App (não global)
 	serverMu            sync.Mutex
 	server              *http.Server
 	stopOnce            sync.Once
 	stopErr             error
+	hotReloader         *hotreload.HotReloader // hot reload para desenvolvimento
 }
 
 // OpenAPIDocument representa um documento OpenAPI 3.1.
@@ -282,6 +285,30 @@ func (a *App) RoutesCount() int {
 	return len(a.router.allRoutes)
 }
 
+// Route registra uma rota com método HTTP arbitrário (ex: PROPFIND, MKCOL, REPORT).
+// Delegado ao Router subjacente, que aplica índice por método, trie dinâmica e
+// compilação do HandlerPlan no registro (zero reflexão no hot path).
+func (a *App) Route(method, path string, handler any, opts ...RouteOption) {
+	anyOpts := make([]any, len(opts))
+	for i, opt := range opts {
+		anyOpts[i] = opt
+	}
+	a.router.AddRoute(strings.ToUpper(method), path, handler, anyOpts...)
+}
+
+// Group cria um grupo de rotas vinculado a este App, com prefixo, tags e
+// dependências compartilhadas por todas as rotas registradas no sub-router.
+// É um atalho para a.router.Group(prefix, opts...).
+// As rotas registradas no sub-router são automaticamente mescladas ao router
+// principal do App quando Handler() é chamado.
+func (a *App) Group(prefix string, opts ...GroupOption) *Router {
+	g := a.router.Group(prefix, opts...)
+	a.mu.Lock()
+	a.subRouters = append(a.subRouters, g)
+	a.mu.Unlock()
+	return g
+}
+
 // Provide registra uma dependência no container DI por instância de App.
 func (a *App) Provide(provider any, opts ...ProvideOption) {
 	a.di.Provide(provider, opts...)
@@ -370,7 +397,37 @@ func (a *App) Handler() http.Handler {
 			route.compiledHandler = compileRouteHTTPHandler(route)
 		}
 	}
+
+	// Mesclar rotas de sub-routers (criados via App.Group) no router principal.
+	a.mu.RLock()
+	subs := append([]*Router(nil), a.subRouters...)
+	a.mu.RUnlock()
+	for _, sub := range subs {
+		sub.mu.RLock()
+		for _, route := range sub.allRoutes {
+			route.errorHandler = a.handleError
+			route.di = a.di
+			if route.Method != "MOUNT" {
+				route.Plan = compileHandler(route.rawHandler, route)
+				route.compiledHandler = compileRouteHTTPHandler(route)
+			}
+			a.router.allRoutes = append(a.router.allRoutes, route)
+			a.router.routesByMethod[route.Method] = append(a.router.routesByMethod[route.Method], route)
+			if len(route.PathParams) == 0 {
+				a.router.staticRoutes[routeKey(route.Method, route.Path)] = route
+			} else {
+				trie, ok := a.router.routeTries[route.Method]
+				if !ok {
+					trie = newRouteTrie()
+					a.router.routeTries[route.Method] = trie
+				}
+				trie.insert(route.Path, route.PathParams, route)
+			}
+		}
+		sub.mu.RUnlock()
+	}
 	a.router.mu.Unlock()
+
 	return middleware.Recovery(slog.Default())(a.router.Handler(a.middleware))
 }
 
@@ -513,8 +570,25 @@ func (a *App) Run(cfg ServerConfig) error {
 		})
 	}
 
+	if cfg.Reload && cfg.Workers > 1 {
+		return fmt.Errorf("Reload and Workers > 1 are mutually exclusive")
+	}
+
+	// Inicializar hot reloader se solicitado
 	if cfg.Reload {
-		return fmt.Errorf("development reload is not implemented yet; run with Reload=false")
+		reloadDirs := cfg.ReloadDirs
+		if len(reloadDirs) == 0 {
+			reloadDirs = []string{"."}
+		}
+		reloadDelay := cfg.ReloadDelay
+		if reloadDelay == 0 {
+			reloadDelay = 1 * time.Second
+		}
+		reloader := hotreload.NewHotReloader(a, reloadDirs, reloadDelay)
+		a.hotReloader = reloader
+		if err := reloader.Start(); err != nil {
+			return fmt.Errorf("failed to start hot reloader: %w", err)
+		}
 	}
 	if cfg.H2C {
 		return fmt.Errorf("h2c cleartext HTTP/2 is not supported by the current net/http server configuration")
@@ -527,9 +601,6 @@ func (a *App) Run(cfg ServerConfig) error {
 	}
 	if cfg.Workers > 1 && cfg.WorkerMode != "" && cfg.WorkerMode != "process" {
 		return fmt.Errorf("unsupported WorkerMode %q: only process workers are implemented", cfg.WorkerMode)
-	}
-	if cfg.Reload && cfg.Workers > 1 {
-		return fmt.Errorf("Reload and Workers > 1 are mutually exclusive")
 	}
 
 	// Construir o handler com todos os middlewares (apenas uma vez)
@@ -558,7 +629,44 @@ func (a *App) Run(cfg ServerConfig) error {
 		return err
 	}
 	a.healthManager.SetReady(true)
+
+	// Se hot reload está ativo, monitorar mudanças e reiniciar o servidor
+	if cfg.Reload && a.hotReloader != nil {
+		go a.runWithHotReload(cfg, wrappedHandler, logger, a.hotReloader)
+		return nil
+	}
+
 	return a.runSingle(cfg, wrappedHandler, logger)
+}
+
+// runWithHotReload inicia o servidor e monitora mudanças de arquivos.
+// Quando uma mudança é detectada, o servidor é reiniciado automaticamente.
+func (a *App) runWithHotReload(cfg ServerConfig, handler http.Handler, logger *slog.Logger, reloader *hotreload.HotReloader) error {
+	for {
+		// Iniciar o servidor
+		serverErr := make(chan error, 1)
+		go func() {
+			err := a.runSingle(cfg, handler, logger)
+			serverErr <- err
+		}()
+
+		// Aguardar por sinal de restart ou término do servidor
+		select {
+		case <-reloader.RestartRequested():
+			logger.Info("GoFastAPI hot reload: arquivo alterado, reiniciando servidor...")
+			if err := a.Shutdown(context.Background()); err != nil {
+				logger.Warn("GoFastAPI hot reload: erro durante shutdown", "error", err)
+			}
+			// Pequeno delay para evitar loop rápido em caso de erros de escrita
+			time.Sleep(cfg.ReloadDelay)
+			// Loop continua e reinicia o servidor
+		case err := <-serverErr:
+			if err != nil && err != http.ErrServerClosed {
+				logger.Error("GoFastAPI server error", "error", err)
+			}
+			return err
+		}
+	}
 }
 
 // runSingle inicia um único processo servidor (modo padrão, Workers == 1).
@@ -653,8 +761,8 @@ func (a *App) runStopHooks(ctx context.Context) error {
 func (a *App) runWithSupervisor(cfg ServerConfig, handler http.Handler, logger *slog.Logger) error {
 	_ = handler // o handler é servido por cada worker via serveWorker
 
-	// Criar listener compartilhado (sem TLS; cada worker pode terminar TLS
-	// ou o TLS pode ser feito por reverse proxy na frente do supervisor)
+	// Criar listener compartilhado (sem TLS; cada worker termina TLS
+	// independentemente sobre o listener herdado via FD)
 	ln, err := a.createListener(cfg)
 	if err != nil {
 		return err
@@ -662,8 +770,7 @@ func (a *App) runWithSupervisor(cfg ServerConfig, handler http.Handler, logger *
 	defer ln.Close()
 
 	if cfg.CertFile != "" && cfg.KeyFile != "" {
-		logger.Warn("TLS configurado mas Workers > 1: o supervisor usa listener TCP simples; " +
-			"recomenda-se encerrar TLS em reverse proxy na frente do supervisor")
+		logger.Info("TLS configurado: cada worker encerrará TLS independentemente sobre o listener herdado")
 	}
 
 	// Configurar o Supervisor com base em ServerConfig
@@ -719,6 +826,14 @@ func (a *App) serveWorker(cfg ServerConfig, handler http.Handler, logger *slog.L
 	ln, err := net.FileListener(f)
 	if err != nil {
 		return fmt.Errorf("gofastapi worker: cannot create listener from fd %d: %w", fd, err)
+	}
+
+	// Configurar TLS se fornecido (cada worker termina TLS independentemente)
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		ln, err = a.wrapTLS(ln, cfg)
+		if err != nil {
+			return fmt.Errorf("gofastapi worker: cannot wrap listener with TLS: %w", err)
+		}
 	}
 
 	maxRequests := cfg.MaxRequests

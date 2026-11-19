@@ -223,6 +223,7 @@ type Router struct {
 	prefix         string
 	groupTags      []string
 	groupDeps      []Depends
+	subRouters     []*Router // sub-routers criados via Group(); suas rotas são mescladas em Handler() e OpenAPIPaths()
 	mu             sync.RWMutex
 }
 
@@ -273,6 +274,10 @@ func (r *Router) Group(prefix string, opts ...GroupOption) *Router {
 		g.groupTags = append(g.groupTags, opt.Tags...)
 		g.groupDeps = append(g.groupDeps, opt.Dependencies...)
 	}
+
+	r.mu.Lock()
+	r.subRouters = append(r.subRouters, g)
+	r.mu.Unlock()
 	return g
 }
 
@@ -739,6 +744,30 @@ func parseScalarValue(raw string, typ reflect.Type) (reflect.Value, error) {
 // Handler retorna o http.Handler para o router. A cadeia de middlewares de rota
 // já foi compilada em AddRoute/Include; middlewares globais são aplicados uma vez.
 func (r *Router) Handler(globalMiddleware []Middleware) http.Handler {
+	// Mesclar rotas de sub-routers (criados via Group()) nas estruturas de
+	// índice do router pai. Isso é feito uma vez, na criação do handler,
+	// não por requisição.
+	r.mu.Lock()
+	for _, sub := range r.subRouters {
+		sub.mu.RLock()
+		for _, route := range sub.allRoutes {
+			r.allRoutes = append(r.allRoutes, route)
+			r.routesByMethod[route.Method] = append(r.routesByMethod[route.Method], route)
+			if len(route.PathParams) == 0 {
+				r.staticRoutes[routeKey(route.Method, route.Path)] = route
+			} else {
+				trie, ok := r.routeTries[route.Method]
+				if !ok {
+					trie = newRouteTrie()
+					r.routeTries[route.Method] = trie
+				}
+				trie.insert(route.Path, route.PathParams, route)
+			}
+		}
+		sub.mu.RUnlock()
+	}
+	r.mu.Unlock()
+
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		method, path := req.Method, req.URL.Path
 		var selectedRoute *Route
@@ -1010,7 +1039,13 @@ func (r *Router) OpenAPIPaths() map[string]any {
 	defer r.mu.RUnlock()
 
 	paths := make(map[string]any)
-	for _, route := range r.allRoutes {
+	all := append([]*Route(nil), r.allRoutes...)
+	for _, sub := range r.subRouters {
+		sub.mu.RLock()
+		all = append(all, sub.allRoutes...)
+		sub.mu.RUnlock()
+	}
+	for _, route := range all {
 		if !route.IncludeInSchema {
 			continue
 		}

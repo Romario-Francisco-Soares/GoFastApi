@@ -21,8 +21,8 @@ import (
 	"syscall"
 	"time"
 
-	"gofast/hotreload"
-	"gofast/middleware"
+	"github.com/Romario-Francisco-Soares/GoFastApi/hotreload"
+	"github.com/Romario-Francisco-Soares/GoFastApi/middleware"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )

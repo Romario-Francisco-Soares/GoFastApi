@@ -168,12 +168,13 @@
 
     <section id="quickstart">
       <h2>Quick start</h2>
-      <p>Este repositório usa atualmente <code>module gofast</code>. A aplicação abaixo compila dentro deste módulo. Antes de publicar, substitua o caminho do módulo por seu endereço canônico.</p>
+      <p>Adicione o módulo ao seu projeto:</p>
+      <pre><button class="copy">Copiar</button><code>go get github.com/Romario-Francisco-Soares/GoFastApi@latest</code></pre>
       <pre><button class="copy">Copiar</button><code>package main
 
 import (
     "log"
-    gofast "gofast"
+    gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 func main() {
@@ -566,7 +567,7 @@ go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s</code></pre>
         <li>Requisições em voo (in-flight) em tempo real.</li>
         <li>Total de panics recuperados.</li>
       </ul>
-      <pre><button class="copy">Copiar</button><code>import "gofast/observability"
+      <pre><button class="copy">Copiar</button><code>import "github.com/Romario-Francisco-Soares/GoFastApi/observability"
 
 obs := observability.NewObservability(true)
 app.Use(obs.Middleware())</code></pre>
@@ -581,7 +582,7 @@ app.Use(obs.Middleware())</code></pre>
         <li><strong>Variáveis de ambiente</strong> — prefixo <code>GOFAST_</code> (ex: <code>GOFAST_ADDR</code>, <code>GOFAST_WORKERS</code>).</li>
         <li><strong>CLI</strong> — overrides da linha de comando (última prioridade).</li>
       </ol>
-      <pre><button class="copy">Copiar</button><code>import "gofast/config"
+      <pre><button class="copy">Copiar</button><code>import "github.com/Romario-Francisco-Soares/GoFastApi/config"
 
 cfg := config.MustLoad(
     config.WithEnvPrefix("GOFAST_"),
@@ -595,12 +596,12 @@ app.Run(*cfg)</code></pre>
     <section id="hot-reload">
       <h2>Hot Reload</h2>
       <p>O pacote <code>hotreload</code> fornece recarga automática do servidor quando arquivos <code>.go</code> são modificados. Útil para desenvolvimento (modo dev):</p>
-      <pre><button class="copy">Copiar</button><code>import "gofast/hotreload"
+      <pre><button class="copy">Copiar</button><code>import "github.com/Romario-Francisco-Soares/GoFastApi/hotreload"
 
 reloader := hotreload.NewHotReloader(app, []string{"."}, 1*time.Second)
 reloader.Start()
 defer reloader.Stop()</code></pre>
-      <p>Quando <code>cfg.Reload = true</code> é definido no <code>ServerConfig</code>, o <code>App.Run()</code> inicia automaticamente o hot reloader, que monitora arquivos <code>.go</code> nos diretórios configurados e reinicia o servidor quando uma mudança é detectada.</p>
+      <p>Quando <code>cfg.Reload = true</code> é definido no <code>ServerConfig</code>, o <code>App.Run()</code> inicia automaticamente o hot reloader, que monitora arquivos <code>.go</code> nos diretórios configurados, recompila o pacote main com <code>go build</code> e inicia um novo processo com o binário atualizado. Se a compilação falhar, o servidor atual continua atendendo.</p>
     </section>
 
     <section id="performance">

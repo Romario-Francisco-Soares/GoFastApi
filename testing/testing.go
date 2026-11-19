@@ -14,7 +14,7 @@ import (
 	"net/url"
 	"strings"
 
-	gofast "gofast"
+	gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 // TestClient é um cliente de teste que serve uma aplicação GoFastAPI

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"gofast/middleware"
+	"github.com/Romario-Francisco-Soares/GoFastApi/middleware"
 )
 
 // Recovery recupera panics ocorridos durante o tratamento de uma requisição

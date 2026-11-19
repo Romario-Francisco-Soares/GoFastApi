@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	gofast "gofast"
+	gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 // appTest cria uma aplicação com rotas úteis para testes do TestClient.

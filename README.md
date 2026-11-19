@@ -20,6 +20,24 @@ GoFastAPI brings FastAPI's developer ergonomics and Uvicorn's operational robust
 
 ---
 
+## Installation
+
+Requires Go 1.23 or newer.
+
+```bash
+go get github.com/Romario-Francisco-Soares/GoFastApi@latest
+```
+
+To run the example server:
+
+```bash
+go install github.com/Romario-Francisco-Soares/GoFastApi/cmd/server@latest
+```
+
+The first public release is `v0.1.0`. Pin a version in production with `@v0.1.x`.
+
+---
+
 ## Quick start
 
 ```go
@@ -27,7 +45,7 @@ package main
 
 import (
     "log"
-    gofast "gofast"
+    gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 func main() {
@@ -264,7 +282,7 @@ log.Fatal(app.Run(cfg))
 The `observability` package provides `Counter`, `Gauge`, `Histogram`, `Metrics`, and instrumentation middleware.
 
 ```go
-import "gofast/observability"
+import "github.com/Romario-Francisco-Soares/GoFastApi/observability"
 
 obs := observability.NewObservability(true)
 app.Use(obs.Middleware())
@@ -275,7 +293,7 @@ app.Use(obs.Middleware())
 The `config` package loads settings by precedence: defaults > JSON file > `GOFAST_*` environment variables > CLI.
 
 ```go
-import "gofast/config"
+import "github.com/Romario-Francisco-Soares/GoFastApi/config"
 
 cfg := config.MustLoad(
     config.WithEnvPrefix("GOFAST_"),
@@ -328,7 +346,7 @@ Included fuzz targets: parameter extraction, RateLimit parser, and trie lookup.
 
 ## Architecture documentation
 
-- [SDD — Software Design Document](SDD_GoFastAPI_Production_Server.md): full specification, traceability matrix, and phased roadmap
+- Software Design Document: internal specification (not distributed with the module)
 - [HTML documentation](docs/index.html): complete technical reference and comparative benchmarks vs FastAPI
 - [Runnable example](cmd/server/main.go): a complete application with middleware, DI, groups, and the server
 

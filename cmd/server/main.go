@@ -5,7 +5,7 @@ import (
 	"log"
 	"strings"
 
-	gofast "gofast"
+	gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 type createItemPayload struct {

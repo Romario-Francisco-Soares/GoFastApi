@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"strings"
 
-	gofast "gofast"
+	gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
 
 // LoaderOption configura o ConfigLoader.

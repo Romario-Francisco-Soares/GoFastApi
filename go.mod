@@ -1,4 +1,4 @@
-module gofast
+module github.com/Romario-Francisco-Soares/GoFastApi
 
 go 1.23
 

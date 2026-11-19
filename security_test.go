@@ -12,8 +12,8 @@ import (
 func TestAPIKey_Header_ValidSecret(t *testing.T) {
 	app := New()
 	app.Use(APIKey(APIKeyConfig{
-		Name:  "X-API-Key",
-		In:    APIKeyHeader,
+		Name:   "X-API-Key",
+		In:     APIKeyHeader,
 		Secret: "super-secret-key",
 	}))
 	app.GET("/protected", func(ctx *Context) (any, error) {
@@ -58,8 +58,8 @@ func TestAPIKey_Header_ValidSecret(t *testing.T) {
 func TestAPIKey_Query_ValidSecret(t *testing.T) {
 	app := New()
 	app.Use(APIKey(APIKeyConfig{
-		Name:  "api_key",
-		In:    APIKeyQuery,
+		Name:   "api_key",
+		In:     APIKeyQuery,
 		Secret: "query-secret",
 	}))
 	app.GET("/protected", func(ctx *Context) (any, error) {
@@ -88,8 +88,8 @@ func TestAPIKey_Query_ValidSecret(t *testing.T) {
 func TestAPIKey_Cookie_ValidSecret(t *testing.T) {
 	app := New()
 	app.Use(APIKey(APIKeyConfig{
-		Name:  "session_key",
-		In:    APIKeyCookie,
+		Name:   "session_key",
+		In:     APIKeyCookie,
 		Secret: "cookie-secret",
 	}))
 	app.GET("/protected", func(ctx *Context) (any, error) {
@@ -120,8 +120,8 @@ func TestAPIKey_CustomValidator(t *testing.T) {
 	app := New()
 	called := false
 	app.Use(APIKey(APIKeyConfig{
-		Name:  "X-API-Key",
-		In:    APIKeyHeader,
+		Name: "X-API-Key",
+		In:   APIKeyHeader,
 		Validator: func(r *http.Request, credential string) (*Principal, error) {
 			called = true
 			if credential == "validator-key" {

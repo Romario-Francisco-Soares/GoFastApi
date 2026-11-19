@@ -105,11 +105,11 @@ func BenchmarkJSONResponse(b *testing.B) {
 		"status":  "ok",
 		"message": "operacao realizada com sucesso",
 		"data": map[string]any{
-			"id":      12345,
-			"nome":    "usuario-teste",
-			"ativo":   true,
-			"email":   "usuario@exemplo.com",
-			"tags":    []string{"a", "b", "c"},
+			"id":    12345,
+			"nome":  "usuario-teste",
+			"ativo": true,
+			"email": "usuario@exemplo.com",
+			"tags":  []string{"a", "b", "c"},
 		},
 	}
 

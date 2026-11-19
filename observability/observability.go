@@ -130,11 +130,11 @@ func (h *Histogram) Mean() float64 {
 
 // Metrics expõe os contadores, gauges e histogramas da aplicação.
 type Metrics struct {
-	RequestsTotal      *Counter
-	RequestsDuration   *Histogram
-	RequestsInFlight   *Gauge
-	ResponsesByStatus  *Counter // key: "method:route:status"
-	PanicsTotal        *Counter
+	RequestsTotal     *Counter
+	RequestsDuration  *Histogram
+	RequestsInFlight  *Gauge
+	ResponsesByStatus *Counter // key: "method:route:status"
+	PanicsTotal       *Counter
 }
 
 // NewMetrics cria um conjunto de métricas zerado.

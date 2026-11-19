@@ -2,21 +2,21 @@
 
 <img src="docs/LogoGoFastApi.png" alt="GoFastAPI Logo" width="120" align="right">
 
-**O framework web para Go com paridade funcional FastAPI + servidor de produção Uvicorn, em um único binário.**
+**The Go web framework with FastAPI feature parity + a Uvicorn-class production server, in a single binary.**
 
-GoFastAPI traz a ergonomia do FastAPI e a robustez operacional do Uvicorn para o ecossistema Go — sem ASGI, sem decorators, sem asyncio. Apenas código Go idiomático, `net/http` sob medida e desempenho de produção desde o primeiro request.
+GoFastAPI brings FastAPI's developer ergonomics and Uvicorn's operational robustness to the Go ecosystem — no ASGI, no decorators, no asyncio. Just idiomatic Go code, a tailored `net/http`, and production-grade performance from the very first request.
 
 ---
 
-## Por que GoFastAPI?
+## Why GoFastAPI?
 
 | FastAPI | Uvicorn | GoFastAPI |
 |---------|---------|-----------|
-| Ergonomia de desenvolvedor | Servidor de produção integrado | **Tudo em um único binário Go** |
-| Rotas declarativas | Workers multiprocesso | **Trie de segmentos O(M) + supervisor nativo** |
-| DI com escopos | Graceful shutdown | **DI por instância, graceful shutdown, sinais** |
-| OpenAPI 3.1 automático | TLS, timeouts, limites | **OpenAPI 3.1, TLS/mTLS, Workers > 1, graceful** |
-| Python (intérprete) | Python (intérprete) | **Go nativo: ~12–17 MB RSS, zero cold start** |
+| Developer ergonomics | Built-in production server | **Everything in a single Go binary** |
+| Declarative routes | Multi-process workers | **O(M) segment trie + native supervisor** |
+| Scoped DI | Graceful shutdown | **Per-instance DI, graceful shutdown, signals** |
+| Automatic OpenAPI 3.1 | TLS, timeouts, limits | **OpenAPI 3.1, TLS/mTLS, Workers > 1, graceful** |
+| Python (interpreter) | Python (interpreter) | **Native Go: ~12–17 MB RSS, zero cold start** |
 
 ---
 
@@ -32,100 +32,100 @@ import (
 
 func main() {
     app := gofast.New(
-        gofast.Title("Minha API"),
+        gofast.Title("My API"),
         gofast.Version("1.0.0"),
-        gofast.Description("API de produção em Go, sem boilerplate"),
+        gofast.Description("A production API in Go, without boilerplate"),
     )
 
-    // Middleware de produção em uma linha
-    app.Use(gofast.Recovery(nil))                    // panic → 500, sem expor stack
-    app.Use(gofast.RequestID(""))                    // X-Request-ID para rastreamento
-    app.Use(gofast.CORS(gofast.CORSConfig{           // CORS com preflight
+    // Production middleware in one line
+    app.Use(gofast.Recovery(nil))                    // panic → 500, no stack exposed
+    app.Use(gofast.RequestID(""))                    // X-Request-ID for tracing
+    app.Use(gofast.CORS(gofast.CORSConfig{           // CORS with preflight
         AllowOrigins: []string{"*"},
         AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
     }))
-    app.Use(gofast.Compression())                    // gzip automático
-    app.Use(gofast.Timeout(10 * time.Second))        // timeout por requisição
+    app.Use(gofast.Compression())                    // automatic gzip
+    app.Use(gofast.Timeout(10 * time.Second))        // per-request timeout
 
-    // Rotas com agrupamento (prefixo, tags, dependências compartilhadas)
-    usuarios := app.Group("/usuarios", gofast.GroupTags("usuarios"))
-    usuarios.GET("/{id}", func(ctx *gofast.Context) (any, error) {
+    // Routes with grouping (prefix, tags, shared dependencies)
+    users := app.Group("/users", gofast.GroupTags("users"))
+    users.GET("/{id}", func(ctx *gofast.Context) (any, error) {
         return gofast.OK(map[string]string{"id": ctx.Param("id")}), nil
     })
-    usuarios.POST("/", func(ctx *gofast.Context) (any, error) {
-        return gofast.Created(map[string]string{"status": "criado"}), nil
+    users.POST("/", func(ctx *gofast.Context) (any, error) {
+        return gofast.Created(map[string]string{"status": "created"}), nil
     })
 
-    // Método HTTP arbitrário
-    app.Route("PROPFIND", "/arquivos/{id}", func(ctx *gofast.Context) (any, error) {
+    // Arbitrary HTTP method
+    app.Route("PROPFIND", "/files/{id}", func(ctx *gofast.Context) (any, error) {
         return gofast.OK(map[string]string{"method": "PROPFIND"}), nil
     })
 
-    // DI com escopos: Singleton, Request, Transient
-    app.Provide(novoBanco, gofast.Singleton())
+    // Scoped DI: Singleton, Request, Transient
+    app.Provide(newDatabase, gofast.Singleton())
 
-    // Background tasks executadas após o flush da resposta
+    // Background tasks run after the response is flushed
     app.POST("/emails", func(ctx *gofast.Context) (any, error) {
         ctx.BackgroundTasks().Add(func() {
-            // envia e-mail após a resposta ir para o cliente
+            // send the e-mail after the response reaches the client
         })
-        return gofast.OK(map[string]bool{"aceito": true}), nil
+        return gofast.OK(map[string]bool{"accepted": true}), nil
     })
 
     cfg := gofast.DefaultServerConfig()
     cfg.Addr = ":8000"
-    cfg.Workers = 4          // supervisor multiprocesso nativo
+    cfg.Workers = 4          // native multi-process supervisor
     cfg.GracefulTimeout = 30 * time.Second
 
     log.Fatal(app.Run(cfg))
 }
 ```
 
-Execute:
+Run:
 
 ```bash
 go run ./cmd/server
 ```
 
-Endpoints internos incluídos por padrão:
+Built-in endpoints enabled by default:
 
-| Endpoint | Finalidade |
-|----------|------------|
-| `/openapi.json` | Contrato OpenAPI 3.1 |
+| Endpoint | Purpose |
+|----------|---------|
+| `/openapi.json` | OpenAPI 3.1 contract |
 | `/docs` | Swagger UI |
 | `/redoc` | ReDoc |
 | `/health/live` | Liveness |
-| `/health/ready` | Readiness com checkers |
+| `/health/ready` | Readiness with checkers |
 
 ---
 
-## Funcionalidades da biblioteca
+## Library features
 
-### 1. Rotas e grupos
+### 1. Routes and groups
 
-Registre rotas com métodos HTTP padrão ou arbitrários. Agrupe rotas com prefixo, tags e dependências compartilhadas.
+Register routes with standard or arbitrary HTTP methods. Group routes with a prefix, tags, and shared dependencies.
 
 ```go
 app.GET("/", handler)
 app.POST("/items/{id}", handler)
-app.Route("PROPFIND", "/arquivos/{id}", handler)
+app.Route("PROPFIND", "/files/{id}", handler)
 
-usuarios := app.Group("/usuarios", gofast.GroupTags("usuarios"))
-usuarios.GET("/{id}", handler)
-usuarios.POST("/", handler)
+users := app.Group("/users", gofast.GroupTags("users"))
+users.GET("/{id}", handler)
+users.POST("/", handler)
 
 app.Include(router, gofast.IncludeOption{Prefix: "/v1"})
 app.Mount("/static", gofast.NewStaticFiles("./public"))
 ```
 
-- Rotas estáticas: busca O(1) por mapa.
-- Rotas dinâmicas: busca O(M) por segmento via trie — sem varredura linear com regex.
-- `{id}` captura segmento único; `{filepath:path}` captura o restante (incluindo barras).
-- Middlewares por rota pré-compilados no registro.
+- Static routes: O(1) lookup via a map.
+- Dynamic routes: O(M) per-segment lookup through a trie — no linear regex scans.
+- `{id}` captures a single segment; `{filepath:path}` captures the rest (including slashes).
+- Per-route middleware is pre-compiled at registration time.
 
-### 2. Context e binding
+### 2. Context and binding
 
-O `Context` é o wrapper de requisição. Oferece `Param`, `Query`, `Header`, `Cookie`, `Session`, `State`, `Resolve`, `JSON`, `Body`, `FormValue`, `FormFile`, `RemoteAddr`, `SetHeader`, `SetStatus`, `Write`, `WriteString` e métodos auxiliares.
+`Context` is the request wrapper. It provides `Param`, `Query`, `Header`, `Cookie`, `Session`, `State`, `Resolve`, `JSON`, `Body`, `FormValue`, `FormFile`, `RemoteAddr`, `SetHeader`, `SetStatus`, `Write`, `WriteString`, and helper methods.
 
 ```go
 app.POST("/items", func(ctx *gofast.Context, input CreateItem) (any, error) {
@@ -133,9 +133,9 @@ app.POST("/items", func(ctx *gofast.Context, input CreateItem) (any, error) {
 })
 ```
 
-### 3. Injeção de dependências (DI)
+### 3. Dependency injection (DI)
 
-Cada aplicação possui seu próprio container DI (não global). Escopos: `Singleton`, `Request`, `Transient`.
+Each application has its own DI container (not global). Scopes: `Singleton`, `Request`, `Transient`.
 
 ```go
 app.Provide(NewUserService, gofast.Singleton())
@@ -147,19 +147,19 @@ app.GET("/me", func(ctx *gofast.Context, svc *UserService) (any, error) {
 })
 ```
 
-Providers podem retornar `T`, `(T, error)`, `(T, func())` ou `(T, func() error)`. Dependências cíclicas são detectadas. Cleanups request/transient são executados ao fim da requisição; cleanups singleton no fechamento da aplicação.
+Providers may return `T`, `(T, error)`, `(T, func())`, or `(T, func() error)`. Circular dependencies are detected. Request/transient cleanups run at the end of the request; singleton cleanups run when the application shuts down.
 
-### 4. Respostas e erros
+### 4. Responses and errors
 
-Tipos disponíveis: `OK`, `Created`, `NewJSONResponse`, `NewTextResponse`, `NewHTMLResponse`, `NewFileResponse`, `NewRedirectResponse`, `NewStreamResponse`, `NewEmptyResponse`.
+Available types: `OK`, `Created`, `NewJSONResponse`, `NewTextResponse`, `NewHTMLResponse`, `NewFileResponse`, `NewRedirectResponse`, `NewStreamResponse`, `NewEmptyResponse`.
 
-Erros podem ser tratados com `HTTPError`, `ValidationError` e `app.OnError(typeOrPredicate, handler)`.
+Errors can be handled with `HTTPError`, `ValidationError`, and `app.OnError(typeOrPredicate, handler)`.
 
 ### 5. Middleware
 
-O tipo base é `func(http.Handler) http.Handler`. Registre middleware global com `app.Use(...)`.
+The base type is `func(http.Handler) http.Handler`. Register global middleware with `app.Use(...)`.
 
-Middlewares disponíveis: `AccessLog`, `Compression`, `CORS`, `BodyLimit`, `ConcurrencyLimit`, `MaxConnections`, `Proxy`, `TrustedHost`, `HTTPSRedirect`, `Recovery`, `RequestID`, `Timeout`, `RateLimit`.
+Available middleware: `AccessLog`, `Compression`, `CORS`, `BodyLimit`, `ConcurrencyLimit`, `MaxConnections`, `Proxy`, `TrustedHost`, `HTTPSRedirect`, `Recovery`, `RequestID`, `Timeout`, `RateLimit`.
 
 ```go
 app.Use(gofast.Recovery(nil))
@@ -172,9 +172,9 @@ app.Use(gofast.Compression())
 app.Use(gofast.Timeout(10 * time.Second))
 ```
 
-### 6. Segurança
+### 6. Security
 
-Cookie de sessão AES-GCM, APIKey (header/query/cookie), HTTPBearer, HTTPBasic, OAuth2Bearer. Os dados do usuário autenticado ficam em `ctx.Principal()`.
+AES-GCM session cookie, APIKey (header/query/cookie), HTTPBearer, HTTPBasic, OAuth2Bearer. Authenticated user data is available at `ctx.Principal()`.
 
 ```go
 app.Use(gofast.SessionMiddleware(gofast.SessionConfig{
@@ -190,22 +190,22 @@ app.Use(gofast.HTTPBearer(gofast.BearerConfig{
 }))
 ```
 
-### 7. OpenAPI e documentação
+### 7. OpenAPI and documentation
 
-`app.OpenAPI()` gera um documento OpenAPI 3.1. Rotas internas: `/openapi.json`, `/docs`, `/redoc`.
+`app.OpenAPI()` generates an OpenAPI 3.1 document. Built-in routes: `/openapi.json`, `/docs`, `/redoc`.
 
 ```go
 app.AddSecurityScheme("BearerAuth", gofast.SecurityScheme{
     Type:             "http",
     Scheme:           "bearer",
     BearerFormat:     "JWT",
-    Description:      "Autenticação via Bearer token JWT",
+    Description:      "Bearer JWT token authentication",
 })
 ```
 
-### 8. WebSocket e streaming
+### 8. WebSocket and streaming
 
-WebSocket com handshake/upgrade e frames básicos. SSE e streaming genérico com `SSE`, `SSEWithHeartbeat`, `WriteEvent`, `Stream`, `StreamWithContentType`.
+WebSocket with handshake/upgrade and basic frames. SSE and generic streaming with `SSE`, `SSEWithHeartbeat`, `WriteEvent`, `Stream`, `StreamWithContentType`.
 
 ```go
 app.GET("/ws", func(ctx *gofast.Context, conn gofast.WebSocketConn) error {
@@ -223,12 +223,12 @@ app.GET("/ws", func(ctx *gofast.Context, conn gofast.WebSocketConn) error {
 
 ### 9. Background tasks
 
-Tarefas em processo, executadas sequencialmente após o flush da resposta.
+In-process tasks, executed sequentially after the response is flushed.
 
 ```go
 app.POST("/emails", func(ctx *gofast.Context) (any, error) {
     ctx.BackgroundTasks().Add(func() {
-        // envia e-mail após a resposta
+        // send the e-mail after the response
     })
     return gofast.OK(map[string]bool{"queued": true}), nil
 })
@@ -236,7 +236,7 @@ app.POST("/emails", func(ctx *gofast.Context) (any, error) {
 
 ### 10. Health checks
 
-`/health/live` e `/health/ready` com checkers registrados.
+`/health/live` and `/health/ready` with registered checkers.
 
 ```go
 app.Health().RegisterChecker("database", func() error {
@@ -244,9 +244,9 @@ app.Health().RegisterChecker("database", func() error {
 })
 ```
 
-### 11. Servidor de produção (Uvicorn-like)
+### 11. Production server (Uvicorn-like)
 
-`app.Run()` incorpora o papel operacional do Uvicorn. Suporte a TLS/mTLS, timeouts, limites, proxy, graceful shutdown com sinais, Workers > 1 via supervisor nativo (listener herdado por FD), HTTP/2 e h2c.
+`app.Run()` takes on Uvicorn's operational role. It supports TLS/mTLS, timeouts, limits, proxy handling, graceful shutdown with signals, and Workers > 1 through a native supervisor (listener inherited via FD), plus HTTP/2 and h2c.
 
 ```go
 cfg := gofast.DefaultServerConfig()
@@ -259,9 +259,9 @@ cfg.KeyFile = "key.pem"
 log.Fatal(app.Run(cfg))
 ```
 
-### 12. Observabilidade
+### 12. Observability
 
-Pacote `observability` com `Counter`, `Gauge`, `Histogram`, `Metrics` e middleware de instrumentação.
+The `observability` package provides `Counter`, `Gauge`, `Histogram`, `Metrics`, and instrumentation middleware.
 
 ```go
 import "gofast/observability"
@@ -270,9 +270,9 @@ obs := observability.NewObservability(true)
 app.Use(obs.Middleware())
 ```
 
-### 13. Configuração
+### 13. Configuration
 
-Pacote `config` com carregamento por precedência: defaults > arquivo JSON > variáveis de ambiente `GOFAST_*` > CLI.
+The `config` package loads settings by precedence: defaults > JSON file > `GOFAST_*` environment variables > CLI.
 
 ```go
 import "gofast/config"
@@ -287,17 +287,18 @@ app.Run(*cfg)
 
 ### 14. Hot Reload
 
-Quando `cfg.Reload = true`, o servidor monitora arquivos `.go` nos diretórios configurados e reinicia automaticamente quando uma mudança é detectada. Útil para desenvolvimento (`gofast dev --reload`).
+When `cfg.Reload = true`, the server watches `.go` files in the configured directories. On a change it rebuilds the application with `go build`, shuts the running server down gracefully, and starts the new binary in a fresh process. If compilation fails, the current server keeps running and the error is logged. `gofast dev` enables reload by default; use `--no-reload` to disable it.
 
 ```go
 cfg.Reload = true
 cfg.ReloadDirs = []string{"."}
 cfg.ReloadDelay = 1 * time.Second
+cfg.ReloadPackage = "./cmd/server" // optional; auto-detected from ./... when empty
 ```
 
 ---
 
-## Testes e qualidade
+## Testing and quality
 
 ```bash
 go test ./...
@@ -308,31 +309,31 @@ go test -run=^$ -bench=. -benchmem
 go test -run=^$ -fuzz=FuzzTrieLookup -fuzztime=10s
 ```
 
-Fuzz targets incluídos: extração de parâmetros, parser de RateLimit, lookup de trie.
+Included fuzz targets: parameter extraction, RateLimit parser, and trie lookup.
 
 ---
 
-## Métricas (microbenchmarks internos, não RPS TCP)
+## Metrics (internal microbenchmarks, not TCP RPS)
 
-| Cenário | ns/op | B/op | allocs/op |
-|---------|-------|------|-----------|
-| Handler HTTP direto | 2.330 | 1.232 | 16 |
-| GoFastAPI rota estática | 2.571 | 1.488 | 19 |
-| GoFastAPI rota dinâmica | 2.914 | 2.416 | 23 |
-| GoFastAPI JSON response | 1.015 | 352 | 9 |
+| Scenario | ns/op | B/op | allocs/op |
+|----------|-------|------|-----------|
+| Direct HTTP handler | 2,330 | 1,232 | 16 |
+| GoFastAPI static route | 2,571 | 1,488 | 19 |
+| GoFastAPI dynamic route | 2,914 | 2,416 | 23 |
+| GoFastAPI JSON response | 1,015 | 352 | 9 |
 
-> Ambiente: Linux/AMD64, Go 1.23.2, 2 vCPUs efetivas, 4 GiB RAM. Microbenchmarks de `testing.B` em processo — não substituem testes de carga TCP com gerador externo.
-
----
-
-## Documentação de arquitetura
-
-- [SDD — Software Design Document](SDD_GoFastAPI_Production_Server.md): especificação completa, matriz de rastreabilidade e roadmap por fases
-- [Documentação HTML](docs/index.html): referência técnica completa e benchmarks comparativos vs FastAPI
-- [Exemplo executável](cmd/server/main.go): aplicação completa com middlewares, DI, grupos e servidor
+> Environment: Linux/AMD64, Go 1.23.2, 2 effective vCPUs, 4 GiB RAM. In-process `testing.B` microbenchmarks — they do not replace TCP load tests with an external generator.
 
 ---
 
-## Licença
+## Architecture documentation
 
-Consulte [LICENSE.md](LICENSE.md).
+- [SDD — Software Design Document](SDD_GoFastAPI_Production_Server.md): full specification, traceability matrix, and phased roadmap
+- [HTML documentation](docs/index.html): complete technical reference and comparative benchmarks vs FastAPI
+- [Runnable example](cmd/server/main.go): a complete application with middleware, DI, groups, and the server
+
+---
+
+## License
+
+See [LICENSE.md](LICENSE.md).

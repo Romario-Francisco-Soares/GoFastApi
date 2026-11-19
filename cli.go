@@ -118,9 +118,9 @@ func (c *CLI) runCmd(args []string) int {
 
 func (c *CLI) devCmd(args []string) int {
 	addr := "127.0.0.1:8000"
-	// Hot reload ainda não é suportado pelo runtime. O comando dev inicia
-	// um único processo com logging de desenvolvimento, sem definir Reload.
-	reload := false
+	// O modo dev habilita hot reload por padrão: arquivos .go são monitorados,
+	// o binário é recompilado e um novo processo assume o servidor.
+	reload := true
 	logLevel := "debug"
 
 	for i := 0; i < len(args); i++ {
@@ -146,6 +146,8 @@ func (c *CLI) devCmd(args []string) int {
 				addr = args[i+1]
 				i++
 			}
+		case "--reload":
+			reload = true
 		case "--no-reload":
 			reload = false // mantido por compatibilidade com scripts existentes
 		case "--log-level":
@@ -157,8 +159,7 @@ func (c *CLI) devCmd(args []string) int {
 	}
 
 	c.logger.Info("Iniciando servidor GoFastAPI em modo desenvolvimento",
-		"addr", addr, "reload", reload, "log_level", logLevel,
-		"hot_reload_supported", false)
+		"addr", addr, "reload", reload, "log_level", logLevel)
 
 	cfg := DefaultServerConfig()
 	cfg.Addr = addr

@@ -23,6 +23,8 @@ import (
 
 	"gofast/hotreload"
 	"gofast/middleware"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 // App é a estrutura principal do GoFastAPI, equivalente à classe FastAPI do Python.
@@ -46,7 +48,6 @@ type App struct {
 	redocURL            string
 	healthManager       *HealthManager
 	otel                *OTelManager
-	subRouters          []*Router // sub-routers criados via App.Group; suas rotas são mescladas no Handler()
 	cli                 *CLI
 	di                  *DIContainer // Container DI por instância de App (não global)
 	serverMu            sync.Mutex
@@ -302,11 +303,7 @@ func (a *App) Route(method, path string, handler any, opts ...RouteOption) {
 // As rotas registradas no sub-router são automaticamente mescladas ao router
 // principal do App quando Handler() é chamado.
 func (a *App) Group(prefix string, opts ...GroupOption) *Router {
-	g := a.router.Group(prefix, opts...)
-	a.mu.Lock()
-	a.subRouters = append(a.subRouters, g)
-	a.mu.Unlock()
-	return g
+	return a.router.Group(prefix, opts...)
 }
 
 // Provide registra uma dependência no container DI por instância de App.
@@ -388,47 +385,32 @@ func (a *App) DependencyOverride(original, replacement interface{}) {
 // Handler retorna o http.Handler para interoperação com net/http.
 // Middlewares globais são aplicados APENAS uma vez aqui pelo Router.
 func (a *App) Handler() http.Handler {
-	a.router.mu.Lock()
-	for _, route := range a.router.allRoutes {
-		route.errorHandler = a.handleError
-		route.di = a.di
-		if route.Method != "MOUNT" {
-			route.Plan = compileHandler(route.rawHandler, route)
-			route.compiledHandler = compileRouteHTTPHandler(route)
-		}
-	}
-
-	// Mesclar rotas de sub-routers (criados via App.Group) no router principal.
-	a.mu.RLock()
-	subs := append([]*Router(nil), a.subRouters...)
-	a.mu.RUnlock()
-	for _, sub := range subs {
-		sub.mu.RLock()
-		for _, route := range sub.allRoutes {
-			route.errorHandler = a.handleError
-			route.di = a.di
-			if route.Method != "MOUNT" {
-				route.Plan = compileHandler(route.rawHandler, route)
-				route.compiledHandler = compileRouteHTTPHandler(route)
-			}
-			a.router.allRoutes = append(a.router.allRoutes, route)
-			a.router.routesByMethod[route.Method] = append(a.router.routesByMethod[route.Method], route)
-			if len(route.PathParams) == 0 {
-				a.router.staticRoutes[routeKey(route.Method, route.Path)] = route
-			} else {
-				trie, ok := a.router.routeTries[route.Method]
-				if !ok {
-					trie = newRouteTrie()
-					a.router.routeTries[route.Method] = trie
-				}
-				trie.insert(route.Path, route.PathParams, route)
-			}
-		}
-		sub.mu.RUnlock()
-	}
-	a.router.mu.Unlock()
-
+	a.prepareRouter(a.router)
 	return middleware.Recovery(slog.Default())(a.router.Handler(a.middleware))
+}
+
+// prepareRouter injeta o container DI e o tratador de erros em todas as rotas,
+// incluindo as de sub-routers criados via Group, e recompila os handlers.
+func (a *App) prepareRouter(r *Router) {
+	r.mu.Lock()
+	for _, route := range r.allRoutes {
+		a.prepareRoute(route)
+	}
+	subs := append([]*Router(nil), r.subRouters...)
+	r.mu.Unlock()
+
+	for _, sub := range subs {
+		a.prepareRouter(sub)
+	}
+}
+
+func (a *App) prepareRoute(route *Route) {
+	route.errorHandler = a.handleError
+	route.di = a.di
+	if route.Method != "MOUNT" {
+		route.Plan = compileHandler(route.rawHandler, route)
+		route.compiledHandler = compileRouteHTTPHandler(route)
+	}
 }
 
 func (a *App) handleError(ctx *Context, err error) bool {
@@ -590,11 +572,11 @@ func (a *App) Run(cfg ServerConfig) error {
 			return fmt.Errorf("failed to start hot reloader: %w", err)
 		}
 	}
-	if cfg.H2C {
-		return fmt.Errorf("h2c cleartext HTTP/2 is not supported by the current net/http server configuration")
+	if cfg.HTTP2 && cfg.H2C {
+		return fmt.Errorf("HTTP/2 (TLS) and h2c (cleartext) are mutually exclusive")
 	}
-	if cfg.HTTP2 {
-		return fmt.Errorf("explicit HTTP/2 configuration is not supported by this listener path; use an HTTP/2-capable reverse proxy")
+	if cfg.HTTP2 && (cfg.CertFile == "" || cfg.KeyFile == "") {
+		return fmt.Errorf("HTTP/2 requires TLS (CertFile and KeyFile must be set)")
 	}
 	if cfg.Workers < 1 {
 		cfg.Workers = 1
@@ -630,36 +612,42 @@ func (a *App) Run(cfg ServerConfig) error {
 	}
 	a.healthManager.SetReady(true)
 
-	// Se hot reload está ativo, monitorar mudanças e reiniciar o servidor
+	// Se hot reload está ativo, monitorar mudanças e reiniciar o processo.
+	// Run permanece bloqueado enquanto o servidor estiver em execução.
 	if cfg.Reload && a.hotReloader != nil {
-		go a.runWithHotReload(cfg, wrappedHandler, logger, a.hotReloader)
-		return nil
+		return a.runWithHotReload(cfg, wrappedHandler, logger, a.hotReloader)
 	}
 
 	return a.runSingle(cfg, wrappedHandler, logger)
 }
 
 // runWithHotReload inicia o servidor e monitora mudanças de arquivos.
-// Quando uma mudança é detectada, o servidor é reiniciado automaticamente.
+// Quando uma mudança é detectada, o código é recompilado com `go build` e um
+// novo processo assume o servidor; falhas de compilação mantêm o servidor atual.
 func (a *App) runWithHotReload(cfg ServerConfig, handler http.Handler, logger *slog.Logger, reloader *hotreload.HotReloader) error {
-	for {
-		// Iniciar o servidor
-		serverErr := make(chan error, 1)
-		go func() {
-			err := a.runSingle(cfg, handler, logger)
-			serverErr <- err
-		}()
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- a.runSingle(cfg, handler, logger)
+	}()
 
-		// Aguardar por sinal de restart ou término do servidor
+	for {
 		select {
 		case <-reloader.RestartRequested():
-			logger.Info("GoFastAPI hot reload: arquivo alterado, reiniciando servidor...")
-			if err := a.Shutdown(context.Background()); err != nil {
+			logger.Info("GoFastAPI hot reload: mudança detectada, recompilando...")
+			exe, err := hotreload.Build(cfg.ReloadPackage)
+			if err != nil {
+				logger.Error("GoFastAPI hot reload: falha na compilação; mantendo servidor atual", "error", err)
+				// Continua servindo; a próxima mudança tenta novamente.
+				continue
+			}
+
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GracefulTimeout)
+			if err := a.Shutdown(shutdownCtx); err != nil {
 				logger.Warn("GoFastAPI hot reload: erro durante shutdown", "error", err)
 			}
-			// Pequeno delay para evitar loop rápido em caso de erros de escrita
-			time.Sleep(cfg.ReloadDelay)
-			// Loop continua e reinicia o servidor
+			cancel()
+			logger.Info("GoFastAPI hot reload: reiniciando processo com o novo binário")
+			return hotreload.Restart(exe, os.Args[1:])
 		case err := <-serverErr:
 			if err != nil && err != http.ErrServerClosed {
 				logger.Error("GoFastAPI server error", "error", err)
@@ -675,6 +663,11 @@ func (a *App) runSingle(cfg ServerConfig, handler http.Handler, logger *slog.Log
 		Handler: handler, ReadTimeout: cfg.ReadTimeout, ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 		WriteTimeout: cfg.WriteTimeout, IdleTimeout: cfg.IdleTimeout, MaxHeaderBytes: cfg.MaxHeaderBytes,
 	}
+	h2Handler, err := configureHTTP2(srv, handler, cfg)
+	if err != nil {
+		return fmt.Errorf("failed to configure HTTP/2 server: %w", err)
+	}
+	srv.Handler = h2Handler
 	srv.SetKeepAlivesEnabled(!cfg.DisableKeepAlives)
 	if cfg.MaxConnections > 0 {
 		var active int64
@@ -721,6 +714,22 @@ func (a *App) runSingle(cfg ServerConfig, handler http.Handler, logger *slog.Log
 	a.server = nil
 	a.serverMu.Unlock()
 	return err
+}
+
+// configureHTTP2 habilita HTTP/2 sobre TLS ou h2c (cleartext) no servidor.
+// Para h2c, o handler precisa ser envolvido por h2c.NewHandler para tratar
+// upgrade e prior knowledge; para HTTP/2 sobre TLS, basta configurar o servidor
+// e anunciar "h2" no ALPN do listener (ver wrapTLS).
+func configureHTTP2(srv *http.Server, handler http.Handler, cfg ServerConfig) (http.Handler, error) {
+	if cfg.H2C {
+		return h2c.NewHandler(handler, &http2.Server{}), nil
+	}
+	if cfg.HTTP2 {
+		if err := http2.ConfigureServer(srv, &http2.Server{}); err != nil {
+			return nil, err
+		}
+	}
+	return handler, nil
 }
 
 func (a *App) runStartHooks() error {
@@ -870,6 +879,11 @@ func (a *App) serveWorker(cfg ServerConfig, handler http.Handler, logger *slog.L
 		IdleTimeout:       cfg.IdleTimeout,
 		MaxHeaderBytes:    cfg.MaxHeaderBytes,
 	}
+	h2Handler, h2Err := configureHTTP2(srv, workerHandler, cfg)
+	if h2Err != nil {
+		return fmt.Errorf("gofastapi worker: cannot configure HTTP/2: %w", h2Err)
+	}
+	srv.Handler = h2Handler
 	srv.SetKeepAlivesEnabled(!cfg.DisableKeepAlives)
 
 	done := make(chan error, 1)
@@ -1025,6 +1039,9 @@ func (a *App) wrapTLS(ln net.Listener, cfg ServerConfig) (net.Listener, error) {
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
+	}
+	if cfg.HTTP2 {
+		tlsConfig.NextProtos = []string{"h2", "http/1.1"}
 	}
 
 	if cfg.MinTLSVersion != "" {

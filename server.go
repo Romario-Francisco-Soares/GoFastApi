@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 // ServerConfig configura o servidor de produção (equivalente às configurações do Uvicorn).
@@ -41,9 +42,10 @@ type ServerConfig struct {
 	H2C   bool
 
 	// Development
-	Reload      bool
-	ReloadDirs  []string
-	ReloadDelay time.Duration
+	Reload        bool
+	ReloadDirs    []string
+	ReloadDelay   time.Duration
+	ReloadPackage string // pacote main reconstruído no hot reload (vazio = autodetectar)
 
 	// Workers
 	Workers             int
@@ -225,6 +227,9 @@ func (s *ProductionServer) Start() error {
 			Certificates: []tls.Certificate{cert},
 			MinVersion:   tls.VersionTLS12,
 		}
+		if s.cfg.HTTP2 {
+			tlsConfig.NextProtos = []string{"h2", "http/1.1"}
+		}
 
 		// Configurar versão mínima TLS
 		if s.cfg.MinTLSVersion != "" {
@@ -308,6 +313,10 @@ func (s *ProductionServer) Start() error {
 	}
 
 	// Configurar HTTP/2 se solicitado
+	if s.cfg.H2C {
+		handler = h2c.NewHandler(handler, &http2.Server{})
+		s.server.Handler = handler
+	}
 	if s.cfg.HTTP2 || s.cfg.H2C {
 		if err := http2.ConfigureServer(s.server, &http2.Server{}); err != nil {
 			s.mu.Lock()

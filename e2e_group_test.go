@@ -132,3 +132,37 @@ func TestApp_Group_InheritedDependencies(t *testing.T) {
 		t.Errorf("status esperado 200, obtido %d", w.Code)
 	}
 }
+
+// ---------- App.Group: routes are merged exactly once ----------
+
+func TestApp_Group_NoDuplicateRoutes(t *testing.T) {
+	app := New()
+
+	g := app.Group("/v1")
+	g.GET("/ping", func(ctx *Context) (any, error) { return OK(nil), nil })
+	nested := g.Group("/admin")
+	nested.GET("/stats", func(ctx *Context) (any, error) { return OK(nil), nil })
+
+	// Handler() and OpenAPIPaths() may be called multiple times; neither may
+	// duplicate grouped routes in the parent router.
+	_ = app.Handler()
+	_ = app.Handler()
+	paths := app.router.OpenAPIPaths()
+
+	if got, want := app.RoutesCount(), 7; got != want {
+		t.Fatalf("RoutesCount = %d, want %d", got, want)
+	}
+	if len(paths) != 2 {
+		t.Fatalf("OpenAPI paths = %v, want 2 entries", paths)
+	}
+
+	seen := make(map[string]int)
+	for _, route := range app.router.allRoutes {
+		seen[route.Method+" "+route.Path]++
+	}
+	for key, count := range seen {
+		if count != 1 {
+			t.Errorf("route %s merged %d times, want 1", key, count)
+		}
+	}
+}

@@ -214,17 +214,18 @@ type routeParamsContextKey struct{}
 func routeKey(method, path string) string { return method + "\x00" + path }
 
 type Router struct {
-	routesByMethod map[string][]*Route
-	staticRoutes   map[string]*Route
-	routeTries     map[string]*routeTrie // trie de rotas dinâmicas por método
-	mounts         []mountedHandler
-	allRoutes      []*Route
-	middleware     []Middleware
-	prefix         string
-	groupTags      []string
-	groupDeps      []Depends
-	subRouters     []*Router // sub-routers criados via Group(); suas rotas são mescladas em Handler() e OpenAPIPaths()
-	mu             sync.RWMutex
+	routesByMethod  map[string][]*Route
+	staticRoutes    map[string]*Route
+	routeTries      map[string]*routeTrie // trie de rotas dinâmicas por método
+	mounts          []mountedHandler
+	allRoutes       []*Route
+	middleware      []Middleware
+	prefix          string
+	groupTags       []string
+	groupDeps       []Depends
+	subRouters      []*Router       // sub-routers criados via Group()
+	mergedSubRoutes map[*Router]int // quantidade de rotas já mescladas de cada sub-router
+	mu              sync.RWMutex
 }
 
 // NewRouter cria um router vazio.
@@ -741,16 +742,36 @@ func parseScalarValue(raw string, typ reflect.Type) (reflect.Value, error) {
 	return value, nil
 }
 
-// Handler retorna o http.Handler para o router. A cadeia de middlewares de rota
-// já foi compilada em AddRoute/Include; middlewares globais são aplicados uma vez.
-func (r *Router) Handler(globalMiddleware []Middleware) http.Handler {
-	// Mesclar rotas de sub-routers (criados via Group()) nas estruturas de
-	// índice do router pai. Isso é feito uma vez, na criação do handler,
-	// não por requisição.
+// mergeSubRouters mescla, de forma idempotente, as rotas dos sub-routers
+// criados via Group() nas estruturas de índice deste router. Apenas rotas
+// ainda não mescladas são inseridas, então chamadas repetidas de Handler()
+// ou OpenAPIPaths() não duplicam entradas.
+func (r *Router) mergeSubRouters() {
+	r.mu.RLock()
+	subs := append([]*Router(nil), r.subRouters...)
+	r.mu.RUnlock()
+
+	// Mesclar primeiro os sub-routers de cada grupo (groups aninhados).
+	for _, sub := range subs {
+		sub.mergeSubRouters()
+	}
+
 	r.mu.Lock()
-	for _, sub := range r.subRouters {
+	defer r.mu.Unlock()
+	if r.mergedSubRoutes == nil {
+		r.mergedSubRoutes = make(map[*Router]int)
+	}
+	for _, sub := range subs {
 		sub.mu.RLock()
-		for _, route := range sub.allRoutes {
+		start := r.mergedSubRoutes[sub]
+		total := len(sub.allRoutes)
+		if start > total {
+			start = total
+		}
+		routes := append([]*Route(nil), sub.allRoutes[start:]...)
+		sub.mu.RUnlock()
+
+		for _, route := range routes {
 			r.allRoutes = append(r.allRoutes, route)
 			r.routesByMethod[route.Method] = append(r.routesByMethod[route.Method], route)
 			if len(route.PathParams) == 0 {
@@ -764,9 +785,16 @@ func (r *Router) Handler(globalMiddleware []Middleware) http.Handler {
 				trie.insert(route.Path, route.PathParams, route)
 			}
 		}
-		sub.mu.RUnlock()
+		r.mergedSubRoutes[sub] = total
 	}
-	r.mu.Unlock()
+}
+
+// Handler retorna o http.Handler para o router. A cadeia de middlewares de rota
+// já foi compilada em AddRoute/Include; middlewares globais são aplicados uma vez.
+func (r *Router) Handler(globalMiddleware []Middleware) http.Handler {
+	// Mesclar rotas de sub-routers (criados via Group()) nas estruturas de
+	// índice do router pai. Idempotente: chamadas repetidas não duplicam rotas.
+	r.mergeSubRouters()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		method, path := req.Method, req.URL.Path
@@ -1035,17 +1063,13 @@ func (r *Router) executeRoute(route *Route, params map[string]string, w http.Res
 
 // OpenAPIPaths retorna os caminhos OpenAPI do router.
 func (r *Router) OpenAPIPaths() map[string]any {
+	r.mergeSubRouters()
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	paths := make(map[string]any)
-	all := append([]*Route(nil), r.allRoutes...)
-	for _, sub := range r.subRouters {
-		sub.mu.RLock()
-		all = append(all, sub.allRoutes...)
-		sub.mu.RUnlock()
-	}
-	for _, route := range all {
+	for _, route := range r.allRoutes {
 		if !route.IncludeInSchema {
 			continue
 		}
@@ -1100,6 +1124,7 @@ func (r *Router) Include(router *Router, opts ...IncludeOption) {
 	if router == nil || router == r {
 		return
 	}
+	router.mergeSubRouters()
 	router.mu.RLock()
 	source := append([]*Route(nil), router.allRoutes...)
 	router.mu.RUnlock()

@@ -201,15 +201,15 @@ func TestLoader_CustomEnvPrefix(t *testing.T) {
 func TestLoader_MultipleEnvVars(t *testing.T) {
 	os.Setenv("GOFAST_ADDR", ":1000")
 	os.Setenv("GOFAST_PORT", "8080")
-	os.Setenv("GOFAST_GRACEFUL_TIMEOUT", "45s") // não é duration, mas string - será ignorado/erro
+	os.Setenv("GOFAST_GRACEFUL_TIMEOUT", "45s") // duração válida (ex: 45s)
 	defer func() {
 		os.Unsetenv("GOFAST_ADDR")
 		os.Unsetenv("GOFAST_PORT")
 		os.Unsetenv("GOFAST_GRACEFUL_TIMEOUT")
 	}()
 
-	// GOFAST_PORT não existe em ServerConfig, deve ser ignorado silenciosamente
-	// GOFAST_GRACEFUL_TIMEOUT não é parseável como duration via string simples, será ignorado
+	// GOFAST_PORT não existe em ServerConfig e é ignorado silenciosamente.
+	// GOFAST_GRACEFUL_TIMEOUT é uma duração válida ("45s") e passa a ser aplicada.
 	cfg, err := NewLoader().Load()
 	if err != nil {
 		t.Fatal(err)

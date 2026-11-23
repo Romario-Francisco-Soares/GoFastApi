@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -40,11 +41,62 @@ func (e *WebSocketDisconnect) Error() string {
 // WebSocketHandler é o tipo de handler para rotas WebSocket.
 type WebSocketHandler func(conn *WebSocketConn) error
 
-// UpgradeWebSocket atualiza uma conexão HTTP para WebSocket.
+// ErrWebSocketOriginRejected indica que o cabeçalho Origin da requisição não
+// foi aceito pela política de origem configurada.
+var ErrWebSocketOriginRejected = errors.New("websocket origin rejected")
+
+// WebSocketOptions configura o upgrade de uma conexão WebSocket.
+type WebSocketOptions struct {
+	// CheckOrigin valida a origem da requisição antes do upgrade. Quando nil,
+	// aplica SameOriginWebSocketCheck (same-origin ou sem cabeçalho Origin).
+	CheckOrigin func(*http.Request) bool
+	// ReadLimit define o tamanho máximo de uma mensagem recebida, em bytes.
+	// Zero usa o padrão de 1 MiB.
+	ReadLimit int64
+}
+
+// SameOriginWebSocketCheck é a política de origem padrão: aceita clientes que
+// não enviam Origin (CLI, testes, integrações servidor-a-servidor) e aceita
+// navegadores apenas quando o Origin corresponde ao Host da requisição.
+// Isso impede Cross-Site WebSocket Hijacking a partir de outra origem.
+func SameOriginWebSocketCheck(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		// Cliente não-browser não envia Origin; o navegador sempre envia.
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, r.Host)
+}
+
+// AllowAllWebSocketOrigins desabilita a validação de origem. Use apenas quando
+// a autenticação do WebSocket não depende de cookies/credenciais implícitas.
+func AllowAllWebSocketOrigins(*http.Request) bool { return true }
+
+// UpgradeWebSocket atualiza uma conexão HTTP para WebSocket usando a política
+// de origem padrão (same-origin).
 func UpgradeWebSocket(w http.ResponseWriter, r *http.Request) (*WebSocketConn, error) {
+	return UpgradeWebSocketWithOptions(w, r, WebSocketOptions{})
+}
+
+// UpgradeWebSocketWithOptions atualiza uma conexão HTTP para WebSocket.
+func UpgradeWebSocketWithOptions(w http.ResponseWriter, r *http.Request, opts WebSocketOptions) (*WebSocketConn, error) {
+	checkOrigin := opts.CheckOrigin
+	if checkOrigin == nil {
+		checkOrigin = SameOriginWebSocketCheck
+	}
+	if !checkOrigin(r) {
+		return nil, ErrWebSocketOriginRejected
+	}
 	// Verificar se é upgrade de WebSocket
 	if !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 		return nil, errors.New("not a websocket request")
+	}
+	if r.Method != http.MethodGet {
+		return nil, errors.New("websocket upgrade requires GET")
 	}
 	if !strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") {
 		return nil, errors.New("not an upgrade request")
@@ -88,10 +140,14 @@ func UpgradeWebSocket(w http.ResponseWriter, r *http.Request) (*WebSocketConn, e
 		return nil, fmt.Errorf("failed to flush upgrade response: %w", err)
 	}
 
+	readLimit := opts.ReadLimit
+	if readLimit <= 0 {
+		readLimit = 1 << 20
+	}
 	return &WebSocketConn{
 		conn:           conn,
 		rw:             bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn)),
-		maxMessageSize: 1 << 20,
+		maxMessageSize: readLimit,
 	}, nil
 }
 

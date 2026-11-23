@@ -66,6 +66,7 @@ type Route struct {
 	compiledHandler http.Handler // cadeia de middleware compilada no registro
 	errorHandler    func(*Context, error) bool
 	di              *DIContainer
+	wsOptions       *WebSocketOptions
 	mountHandler    http.Handler // legado; mounts usam Router.mounts
 }
 
@@ -346,6 +347,14 @@ func (r *Router) AddRoute(method, path string, handler any, opts ...any) {
 			middlewares = append(middlewares, v)
 		case func(http.Handler) http.Handler:
 			middlewares = append(middlewares, v)
+		case WebSocketOptions:
+			optsCopy := v
+			route.wsOptions = &optsCopy
+		case *WebSocketOptions:
+			if v != nil {
+				optsCopy := *v
+				route.wsOptions = &optsCopy
+			}
 		}
 	}
 	route.Middleware = middlewares
@@ -943,8 +952,16 @@ func compileRouteHTTPHandler(route *Route) http.Handler {
 				http.Error(w, "unsupported websocket handler", http.StatusNotImplemented)
 				return
 			}
-			conn, err := UpgradeWebSocket(w, req)
+			var wsOpts WebSocketOptions
+			if route.wsOptions != nil {
+				wsOpts = *route.wsOptions
+			}
+			conn, err := UpgradeWebSocketWithOptions(w, req, wsOpts)
 			if err != nil {
+				if errors.Is(err, ErrWebSocketOriginRejected) {
+					http.Error(w, "websocket origin rejected", http.StatusForbidden)
+					return
+				}
 				http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
 				return
 			}

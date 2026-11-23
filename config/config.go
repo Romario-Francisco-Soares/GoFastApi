@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	gofast "github.com/Romario-Francisco-Soares/GoFastApi"
 )
@@ -124,6 +125,10 @@ func loadConfigFile(path string) (*gofast.ServerConfig, map[string]bool, error) 
 	return &cfg, fields, nil
 }
 
+// lookupEnv é os.Getenv por padrão. Os testes o substituem para simular a
+// semântica case-sensitive do Linux em sistemas case-insensitive (Windows).
+var lookupEnv = os.Getenv
+
 // loadFromEnv lê variáveis de ambiente com o prefixo informado.
 // Retorna a configuração junto com o conjunto de campos que tinham env var definida.
 func loadFromEnv(prefix string) (*gofast.ServerConfig, map[string]bool, error) {
@@ -136,8 +141,19 @@ func loadFromEnv(prefix string) (*gofast.ServerConfig, map[string]bool, error) {
 
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
-		envName := prefix + field.Name
-		val := os.Getenv(envName)
+		// Convenção documentada: SNAKE_CASE a partir do nome do campo.
+		// ReadHeaderTimeout -> GOFAST_READ_HEADER_TIMEOUT
+		envName := strings.ToUpper(prefix) + toEnvName(field.Name)
+		val := lookupEnv(envName)
+		if val == "" {
+			// Compatibilidade: aceita também o nome do campo em caixa alta,
+			// sem separadores (GOFAST_READHEADERTIMEOUT).
+			if legacy := strings.ToUpper(prefix + field.Name); legacy != envName {
+				if legacyVal := lookupEnv(legacy); legacyVal != "" {
+					envName, val = legacy, legacyVal
+				}
+			}
+		}
 		if val == "" {
 			continue
 		}
@@ -151,6 +167,30 @@ func loadFromEnv(prefix string) (*gofast.ServerConfig, map[string]bool, error) {
 	return cfg, fields, nil
 }
 
+// toEnvName converte um nome de campo em SNAKE_CASE.
+// Exemplos: Addr -> ADDR; ReadHeaderTimeout -> READ_HEADER_TIMEOUT;
+// PIDFile -> PID_FILE; TLSMinVersion -> TLS_MIN_VERSION.
+func toEnvName(name string) string {
+	var b strings.Builder
+	b.Grow(len(name) + 4)
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if c >= 'A' && c <= 'Z' && i > 0 {
+			prev := name[i-1]
+			nextLower := i+1 < len(name) && name[i+1] >= 'a' && name[i+1] <= 'z'
+			if (prev >= 'a' && prev <= 'z') || (prev >= '0' && prev <= '9') ||
+				(prev >= 'A' && prev <= 'Z' && nextLower) {
+				b.WriteByte('_')
+			}
+		}
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
+}
+
 // setField define o valor de um campo struct a partir de uma string de env.
 func setField(v reflect.Value, fieldName string, val string) error {
 	if !v.CanSet() {
@@ -161,6 +201,14 @@ func setField(v reflect.Value, fieldName string, val string) error {
 	case reflect.String:
 		v.SetString(val)
 	case reflect.Int, reflect.Int64:
+		if v.Type() == reflect.TypeOf(time.Duration(0)) {
+			d, err := time.ParseDuration(strings.TrimSpace(val))
+			if err != nil {
+				return fmt.Errorf("esperado duration (ex: 30s), obtido %q: %w", val, err)
+			}
+			v.SetInt(int64(d))
+			return nil
+		}
 		n, err := strconv.ParseInt(val, 10, 64)
 		if err != nil {
 			return fmt.Errorf("esperado inteiro, obtido %q: %w", val, err)

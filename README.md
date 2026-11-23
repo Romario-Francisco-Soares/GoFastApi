@@ -1,8 +1,8 @@
-# GoFastAPI
+<p align="center">
+  <img src="docs/LogoGoFastApi.png" alt="GoFastAPI" width="100%">
+</p>
 
-<img src="docs/LogoGoFastApi.png" alt="GoFastAPI Logo" width="120" align="right">
-
-**The Go web framework with FastAPI feature parity + a Uvicorn-class production server, in a single binary.**
+<p align="center"><strong>The Go web framework with FastAPI feature parity + a Uvicorn-class production server, in a single binary.</strong></p>
 
 GoFastAPI brings FastAPI's developer ergonomics and Uvicorn's operational robustness to the Go ecosystem — no ASGI, no decorators, no asyncio. Just idiomatic Go code, a tailored `net/http`, and production-grade performance from the very first request.
 
@@ -22,7 +22,7 @@ GoFastAPI brings FastAPI's developer ergonomics and Uvicorn's operational robust
 
 ## Installation
 
-Requires Go 1.23 or newer.
+Requires Go 1.26.11 or newer.
 
 ```bash
 go get github.com/Romario-Francisco-Soares/GoFastApi@latest
@@ -223,7 +223,7 @@ app.AddSecurityScheme("BearerAuth", gofast.SecurityScheme{
 
 ### 8. WebSocket and streaming
 
-WebSocket with handshake/upgrade and basic frames. SSE and generic streaming with `SSE`, `SSEWithHeartbeat`, `WriteEvent`, `Stream`, `StreamWithContentType`.
+WebSocket with handshake/upgrade and basic frames. Upgrades are same-origin by default: requests with an `Origin` that does not match `Host` are rejected with `403`, which blocks cross-site WebSocket hijacking. Non-browser clients (no `Origin`) are accepted. Override with `gofast.WebSocketOptions{CheckOrigin: ...}`. SSE and generic streaming with `SSE`, `SSEWithHeartbeat`, `WriteEvent`, `Stream`, `StreamWithContentType`.
 
 ```go
 app.GET("/ws", func(ctx *gofast.Context, conn gofast.WebSocketConn) error {

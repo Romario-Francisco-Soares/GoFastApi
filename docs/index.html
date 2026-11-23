@@ -438,7 +438,7 @@ app.AddSecurityScheme("ApiKey", gofast.APIKeyScheme("X-API-Key", gofast.APIKeyHe
 
     <section id="streaming">
       <h2>WebSocket e streaming</h2>
-      <p>WebSocket oferece handshake/upgrade e frames básicos de texto, binário, JSON, ping/pong, close, limites e deadlines. Não há fragmentação completa, subprotocolos, extensões de compressão nem política de Origin configurável integrada.</p>
+      <p>WebSocket oferece handshake/upgrade e frames básicos de texto, binário, JSON, ping/pong, close, limites e deadlines. O upgrade valida a origem por padrão (same-origin, configurável via <code>WebSocketOptions</code>). Não há fragmentação completa, subprotocolos nem extensões de compressão.</p>
       <pre><button class="copy">Copiar</button><code>app.GET("/ws", func(ctx *gofast.Context, conn gofast.WebSocketConn) error {
     for {
         msg, err := conn.ReadJSON()

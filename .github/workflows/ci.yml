@@ -16,7 +16,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23.x'
+          go-version: '1.27.x'
           cache: true
       - name: Check formatting
         run: |
@@ -27,5 +27,9 @@ jobs:
         run: go test -race ./...
       - name: Run go vet
         run: go vet ./...
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          "$(go env GOPATH)/bin/govulncheck" ./...
       - name: Report coverage
         run: go test ./... -cover

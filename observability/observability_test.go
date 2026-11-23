@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 // ---------- Counter ----------
@@ -178,15 +177,19 @@ func TestMiddleware_PanicsTotal(t *testing.T) {
 func TestMiddleware_InFlightDuringRequest(t *testing.T) {
 	o := NewObservability(true)
 
-	// Um handler que demora um pouco para verificar que in-flight sobe durante a execução
+	// Sincronização determinística: nada de sleeps. O handler avisa quando
+	// começou (o middleware já incrementou in-flight antes disso) e só termina
+	// quando o teste liberar.
+	started := make(chan struct{})
+	release := make(chan struct{})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(10 * time.Millisecond)
+		close(started)
+		<-release
 		w.WriteHeader(http.StatusOK)
 	})
 
 	handler := o.Middleware()(next)
 
-	// Fazer requisição em goroutine para verificar in-flight durante a execução
 	done := make(chan struct{})
 	go func() {
 		w := httptest.NewRecorder()
@@ -195,16 +198,19 @@ func TestMiddleware_InFlightDuringRequest(t *testing.T) {
 		close(done)
 	}()
 
-	// Dar tempo para a requisição começar
-	time.Sleep(5 * time.Millisecond)
+	// Espera a requisição entrar no handler: in-flight já foi incrementado.
+	<-started
 
-	if o.Metrics().RequestsInFlight.Value() != 1 {
-		t.Fatalf("in flight durante requisição=%d, want 1", o.Metrics().RequestsInFlight.Value())
+	if got := o.Metrics().RequestsInFlight.Value(); got != 1 {
+		close(release)
+		<-done
+		t.Fatalf("in flight durante requisição=%d, want 1", got)
 	}
 
+	close(release)
 	<-done
 
-	if o.Metrics().RequestsInFlight.Value() != 0 {
-		t.Fatalf("in flight após conclusão=%d, want 0", o.Metrics().RequestsInFlight.Value())
+	if got := o.Metrics().RequestsInFlight.Value(); got != 0 {
+		t.Fatalf("in flight após conclusão=%d, want 0", got)
 	}
 }
